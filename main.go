@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/rs/cors"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"log"
 	"net/http"
@@ -85,7 +86,7 @@ func main() {
 		panic(err)
 	}
 
-	if err := http.ListenAndServe("localhost:9000", httpApi); err != nil {
+	if err := http.ListenAndServe("localhost:9090", cors.Default().Handler(httpApi)); err != nil {
 		log.Printf("error serving http: %v", err)
 	}
 
