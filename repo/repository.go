@@ -13,12 +13,18 @@ type PeerInfo struct {
 	PersistentKeepaliveInterval time.Duration
 	AllowedIPs                  []*net.IPNet
 	NetworkDeviceName           string
+	TimeLastSeen                *time.Time
 
-	Name string
+	Name        string
+	TimeCreated time.Time
 }
 
 type Repository interface {
-	ListAllPeers() (<-chan []PeerInfo, error)
+	AddChangeNotification(channel chan<- interface{})
+	RemoveChangeNotification(channel chan<- interface{})
+
+	ListAllPeers(out *[]PeerInfo, offset uint32, limit uint32) (total uint32, err error)
 	RemovePeer(publicKey wgtypes.Key) error
 	UpdatePeers(peers []PeerInfo) error
+	Close() error
 }
