@@ -58,6 +58,6 @@ type paginatedResult struct {
 }
 
 func (p *peer) FromPeerInfo(info repo.PeerInfo) {
-	p.PublicKey = info.PublicKey.String()
+	p.PublicKey = info.PublicKey
 	p.Name = info.Name
 }

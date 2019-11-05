@@ -1,14 +1,13 @@
 package repo
 
 import (
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"net"
 	"time"
 )
 
 type PeerInfo struct {
-	PublicKey                   wgtypes.Key
-	PresharedKey                wgtypes.Key
+	PublicKey                   string
+	PresharedKey                string
 	Endpoint                    *net.UDPAddr
 	PersistentKeepaliveInterval time.Duration
 	AllowedIPs                  []*net.IPNet
@@ -24,7 +23,8 @@ type Repository interface {
 	RemoveChangeNotification(channel chan<- interface{})
 
 	ListAllPeers(offset uint32, limit uint32) (peers []PeerInfo, total uint32, err error)
-	RemovePeer(publicKey wgtypes.Key) error
+	GetPeers(publicKeys []string) ([]PeerInfo, error)
+	RemovePeers(publicKeys []string) error
 	UpdatePeers(peers []PeerInfo) error
 	Close() error
 }

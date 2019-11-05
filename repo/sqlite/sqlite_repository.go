@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"net"
 	"nz.cloudwalker/wireguard-webadmin/repo"
 	"strings"
@@ -25,8 +24,8 @@ type sqlitePeer struct {
 }
 
 func (p *sqlitePeer) FromPeerInfo(info repo.PeerInfo) {
-	p.PublicKey = info.PublicKey.String()
-	p.PresharedKey.String = info.PresharedKey.String()
+	p.PublicKey = info.PublicKey
+	p.PresharedKey.String = info.PresharedKey
 
 	var ips []string
 	for _, ip := range info.AllowedIPs {
@@ -45,15 +44,9 @@ func (p *sqlitePeer) FromPeerInfo(info repo.PeerInfo) {
 
 func (p sqlitePeer) ToPeerInfo(info *repo.PeerInfo) error {
 	var err error
-	if info.PublicKey, err = wgtypes.ParseKey(p.PublicKey); err != nil {
-		return err
-	}
 
-	if p.PresharedKey.Valid {
-		if info.PresharedKey, err = wgtypes.ParseKey(p.PresharedKey.String); err != nil {
-			return err
-		}
-	}
+	info.PublicKey = p.PublicKey
+	info.PresharedKey = p.PresharedKey.String
 
 	if p.Endpoint.Valid {
 		if info.Endpoint, err = net.ResolveUDPAddr("udp", p.Endpoint.String); err != nil {
@@ -90,6 +83,33 @@ func (p sqlitePeer) ToPeerInfo(info *repo.PeerInfo) error {
 type sqliteRepository struct {
 	db        *sqlx.DB
 	listeners map[chan<- interface{}]interface{}
+}
+
+func (s sqliteRepository) GetPeers(publicKeys []string) ([]repo.PeerInfo, error) {
+	rows, err := s.db.Query("SELECT * FROM peers WHERE public_key IN (:1)", publicKeys)
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	var result []repo.PeerInfo
+	var p sqlitePeer
+	var peerInfo repo.PeerInfo
+
+	for rows.Next() {
+		if err := rows.Scan(&p); err != nil {
+			return result, err
+		}
+
+		if err := p.ToPeerInfo(&peerInfo); err != nil {
+			return result, err
+		}
+
+		result = append(result, peerInfo)
+	}
+
+	return result, nil
 }
 
 func (s sqliteRepository) notifyChange() {
@@ -168,8 +188,8 @@ func (s sqliteRepository) ListAllPeers(offset uint32, limit uint32) (peers []rep
 	return
 }
 
-func (s sqliteRepository) RemovePeer(publicKey wgtypes.Key) error {
-	if _, err := s.db.Exec("DELETE FROM peers WHERE public_key = :1", publicKey.String()); err != nil {
+func (s sqliteRepository) RemovePeers(publicKeys []string) error {
+	if _, err := s.db.Exec("DELETE FROM peers WHERE public_key IN (:1)", publicKeys); err != nil {
 		return err
 	} else {
 		s.notifyChange()

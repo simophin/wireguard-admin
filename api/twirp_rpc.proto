@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package nz.cloudwalker.wireguard_webadmin;
 
-option go_package = "twirp";
+option go_package = "rpc";
 
 message Peer {
     string public_key = 1;
@@ -24,6 +24,24 @@ message ListPeerResponse {
     repeated Peer peers = 2;
 }
 
+message RemovePeerRequest {
+    repeated string public_keys = 1;
+}
+
+message RemovePeerResponse {
+    uint32 num_removed = 1;
+}
+
+message UpdatePeerRequest {
+    repeated Peer peers = 1;
+}
+
+message UpdatePeerResponse {
+    uint32 num_updated = 1;
+}
+
 service WireGuardService {
     rpc ListPeers (ListPeerRequest) returns (ListPeerResponse);
+    rpc RemovePeers (RemovePeerRequest) returns (RemovePeerResponse);
+    rpc UpdatePeers (UpdatePeerRequest) returns (UpdatePeerResponse);
 }

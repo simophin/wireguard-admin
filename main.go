@@ -70,7 +70,7 @@ func main() {
 
 		peers := []repo.PeerInfo{
 			{
-				PublicKey: key.PublicKey(),
+				PublicKey: key.PublicKey().String(),
 				Name:      "First device",
 			},
 		}
@@ -80,7 +80,7 @@ func main() {
 		}
 	}()
 
-	httpApi, err := api.NewHttpApi(repository)
+	httpApi, err := api.NewTwirpService(repository)
 	if err != nil {
 		panic(err)
 	}
