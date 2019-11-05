@@ -8,7 +8,7 @@ import (
 
 type wgCtlRepository struct {
 	repo.DefaultChangeNotificationHandler
-	client wgctrl.Client
+	client *wgctrl.Client
 }
 
 func toPeerInfo(device *wgtypes.Device, peer wgtypes.Peer, peerInfo *repo.PeerInfo) {
@@ -29,11 +29,13 @@ func (w wgCtlRepository) ListAllPeers(offset uint32, limit uint32) (peers []repo
 
 	for _, dev := range devices {
 		for _, p := range dev.Peers {
+			total++
 			var peerInfo repo.PeerInfo
 			toPeerInfo(dev, p, &peerInfo)
-
+			peers = append(peers, peerInfo)
 		}
 	}
+	return
 }
 
 func (w wgCtlRepository) GetPeers(publicKeys []string) ([]repo.PeerInfo, error) {
@@ -52,6 +54,6 @@ func (w wgCtlRepository) Close() error {
 	panic("implement me")
 }
 
-func NewWgCtlRepository(client wgctrl.Client) (repo.Repository, error) {
+func NewWgCtlRepository(client *wgctrl.Client) (repo.Repository, error) {
 	return &wgCtlRepository{client: client}, nil
 }

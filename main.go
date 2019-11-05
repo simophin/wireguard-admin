@@ -2,12 +2,12 @@ package main
 
 import (
 	"github.com/rs/cors"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"golang.zx2c4.com/wireguard/wgctrl"
 	"log"
 	"net/http"
 	"nz.cloudwalker/wireguard-webadmin/api"
 	"nz.cloudwalker/wireguard-webadmin/repo"
-	"nz.cloudwalker/wireguard-webadmin/repo/sqlite"
+	"nz.cloudwalker/wireguard-webadmin/repo/wg"
 )
 
 func syncRepositoryToWireguard(repository repo.Repository) error {
@@ -23,7 +23,12 @@ func syncRepositoryToWireguard(repository repo.Repository) error {
 }
 
 func main() {
-	repository, err := sqlite.NewSqliteRepository("file:test.db?cache=shared&mode=memory")
+	//repository, err := sqlite.NewSqliteRepository("file:test.db?cache=shared&mode=memory")
+	client, err := wgctrl.New()
+	if err != nil {
+		panic(err)
+	}
+	repository, err := wg.NewWgCtlRepository(client)
 	if err != nil {
 		panic(err)
 	}
@@ -66,20 +71,20 @@ func main() {
 		}
 	}()
 
-	go func() {
-		key, _ := wgtypes.GeneratePrivateKey()
-
-		peers := []repo.PeerInfo{
-			{
-				PublicKey: key.PublicKey().String(),
-				Name:      "First device",
-			},
-		}
-
-		if err := repository.UpdatePeers(peers); err != nil {
-			panic(err)
-		}
-	}()
+	//go func() {
+	//	key, _ := wgtypes.GeneratePrivateKey()
+	//
+	//	peers := []repo.PeerInfo{
+	//		{
+	//			PublicKey: key.PublicKey().String(),
+	//			Name:      "First device",
+	//		},
+	//	}
+	//
+	//	if err := repository.UpdatePeers(peers); err != nil {
+	//		panic(err)
+	//	}
+	//}()
 
 	httpApi, err := api.NewHttpApi(repository)
 	if err != nil {
