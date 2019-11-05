@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package nz.cloudwalker.wireguard_webadmin;
+
+option go_package = "twirp";
+
+message Peer {
+    string public_key = 1;
+    string name = 2;
+}
+
+message Error {
+    string name = 1;
+    string desc = 2;
+}
+
+message ListPeerRequest {
+    uint32 offset = 1;
+    uint32 limit = 2;
+}
+
+message ListPeerResponse {
+    uint32 total = 1;
+    repeated Peer peers = 2;
+}
+
+service WireGuardService {
+    rpc ListPeers (ListPeerRequest) returns (ListPeerResponse);
+}

@@ -30,26 +30,26 @@ const (
 	badRequest   errorName = "bad_request"
 )
 
-func newError(name errorName) displayableError {
-	return displayableError{
+func newError(name errorName) *displayableError {
+	return &displayableError{
 		Name: name,
 	}
 }
 
-func wrapError(cause error) displayableError {
-	if ret, ok := cause.(displayableError); ok {
+func wrapError(cause error) *displayableError {
+	if ret, ok := cause.(*displayableError); ok {
 		return ret
 	}
 
-	return displayableError{
+	return &displayableError{
 		Cause: cause,
 		Name:  unknownError,
 	}
 }
 
 type result struct {
-	Data  interface{}      `json:"data,omitempty"`
-	Error displayableError `json:"error,omitempty"`
+	Data  interface{}       `json:"data,omitempty"`
+	Error *displayableError `json:"error,omitempty"`
 }
 
 type paginatedResult struct {
