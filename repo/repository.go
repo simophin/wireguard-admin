@@ -23,7 +23,7 @@ type Repository interface {
 	AddChangeNotification(channel chan<- interface{})
 	RemoveChangeNotification(channel chan<- interface{})
 
-	ListAllPeers(out *[]PeerInfo, offset uint32, limit uint32) (total uint32, err error)
+	ListAllPeers(offset uint32, limit uint32) (peers []PeerInfo, total uint32, err error)
 	RemovePeer(publicKey wgtypes.Key) error
 	UpdatePeers(peers []PeerInfo) error
 	Close() error

@@ -119,10 +119,10 @@ func (s *sqliteRepository) Close() error {
 	return err
 }
 
-func (s sqliteRepository) ListAllPeers(out *[]repo.PeerInfo, offset uint32, limit uint32) (total uint32, err error) {
+func (s sqliteRepository) ListAllPeers(offset uint32, limit uint32) (peers []repo.PeerInfo, total uint32, err error) {
 	tx, err := s.db.Beginx()
 	if err != nil {
-		return 0, err
+		return peers, 0, err
 	}
 
 	defer func() {
@@ -162,7 +162,7 @@ func (s sqliteRepository) ListAllPeers(out *[]repo.PeerInfo, offset uint32, limi
 			return
 		}
 
-		*out = append(*out, peerInfo)
+		peers = append(peers, peerInfo)
 	}
 
 	return

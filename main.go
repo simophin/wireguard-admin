@@ -12,7 +12,7 @@ import (
 func syncRepositoryToWireguard(repository repo.Repository) error {
 	log.Println("Syncing repository to wireguard")
 	var result []repo.PeerInfo
-	if _, err := repository.ListAllPeers(&result, 0, 0); err != nil {
+	if _, _, err := repository.ListAllPeers(0, 0); err != nil {
 		return err
 	}
 
