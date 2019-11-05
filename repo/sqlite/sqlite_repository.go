@@ -81,6 +81,7 @@ func (p sqlitePeer) ToPeerInfo(info *repo.PeerInfo) error {
 }
 
 type sqliteRepository struct {
+	repo.DefaultChangeNotificationHandler
 	db        *sqlx.DB
 	listeners map[chan<- interface{}]interface{}
 }
@@ -110,26 +111,6 @@ func (s sqliteRepository) GetPeers(publicKeys []string) ([]repo.PeerInfo, error)
 	}
 
 	return result, nil
-}
-
-func (s sqliteRepository) notifyChange() {
-	go func() {
-		defer func() {
-			recover()
-		}()
-
-		for c, _ := range s.listeners {
-			c <- nil
-		}
-	}()
-}
-
-func (s *sqliteRepository) AddChangeNotification(channel chan<- interface{}) {
-	s.listeners[channel] = nil
-}
-
-func (s *sqliteRepository) RemoveChangeNotification(channel chan<- interface{}) {
-	delete(s.listeners, channel)
 }
 
 func (s *sqliteRepository) Close() error {
@@ -192,7 +173,7 @@ func (s sqliteRepository) RemovePeers(publicKeys []string) error {
 	if _, err := s.db.Exec("DELETE FROM peers WHERE public_key IN (:1)", publicKeys); err != nil {
 		return err
 	} else {
-		s.notifyChange()
+		s.NotifyChange()
 		return nil
 	}
 }
@@ -208,7 +189,7 @@ func (s sqliteRepository) UpdatePeers(peers []repo.PeerInfo) error {
 			_ = tx.Rollback()
 		} else {
 			if err = tx.Commit(); err == nil {
-				s.notifyChange()
+				s.NotifyChange()
 			}
 		}
 	}()

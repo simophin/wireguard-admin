@@ -81,7 +81,7 @@ func main() {
 		}
 	}()
 
-	httpApi, err := api.NewTwirpService(repository)
+	httpApi, err := api.NewHttpApi(repository)
 	if err != nil {
 		panic(err)
 	}

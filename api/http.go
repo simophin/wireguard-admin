@@ -5,6 +5,7 @@ import (
 	"github.com/julienschmidt/httprouter"
 	"net/http"
 	"nz.cloudwalker/wireguard-webadmin/repo"
+	"strconv"
 )
 
 type httpApi struct {
@@ -43,10 +44,27 @@ func writeHttpResult(data interface{}, err error, writer http.ResponseWriter) {
 	}
 
 	writer.Header().Set("Content-Type", "application/json")
-	if r.Error != nil {
+	if r.Error != nil && r.Error.StatusCode >= 100 {
 		writer.WriteHeader(r.Error.StatusCode)
+	} else if r.Error != nil {
+		writer.WriteHeader(500)
 	}
+
 	_ = json.NewEncoder(writer).Encode(r)
+}
+
+func getQueryParams(r *http.Request, n string, defaultValue string) string {
+	values := r.URL.Query()[n]
+	var v string
+	if len(values) > 0 {
+		v = values[0]
+	}
+
+	if len(v) == 0 {
+		return defaultValue
+	}
+
+	return v
 }
 
 func NewHttpApi(repository repo.Repository) (http.Handler, error) {
@@ -61,10 +79,24 @@ func NewHttpApi(repository repo.Repository) (http.Handler, error) {
 	}
 
 	r.GET("/peers", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
-		var offset, limit uint32
-		mustScanQueryParameter(&offset, request, "offset", "%d", true)
-		mustScanQueryParameter(&limit, request, "limit", "%d", true)
-		if r, err := api.ListPeers(offset, limit); err != nil {
+		offset, err := strconv.ParseUint(getQueryParams(request, "offset", "0"), 10, 32)
+		if err != nil {
+			panic(&displayableError{
+				Name:        badRequest,
+				Description: "Parameter offset is not valid",
+				StatusCode:  400,
+			})
+		}
+		limit, err := strconv.ParseUint(getQueryParams(request, "limit", "0"), 10, 32)
+		if err != nil {
+			panic(&displayableError{
+				Name:        badRequest,
+				Description: "Parameter limit is not valid",
+				StatusCode:  400,
+			})
+		}
+
+		if r, err := api.ListPeers(uint32(offset), uint32(limit)); err != nil {
 			panic(err)
 		} else {
 			writeHttpResult(r, nil, writer)
