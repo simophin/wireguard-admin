@@ -44,16 +44,16 @@ type peer struct {
 }
 
 const (
-	createPeerTableSql = `CREATE TABLE IF NOT EXISTS peers (
-			public_key TEXT NOT NULL PRIMARY KEY,
-			pre_shared_key TEXT NOT NULL,
-			endpoint TEXT NOT NULL,
-			persistent_keepalive_interval INTEGER NOT NULL DEFAULT 0,
-			allowed_ips TEXT NOT NULL,
-			device_public_key TEXT NOT NULL REFERENCES devices.public_key ON CASCADE DELETE,
-			last_handshake INTEGER,
-			name TEXT
-		)`
+	createPeerTableSql = `CREATE TABLE peers (
+                       public_key TEXT NOT NULL PRIMARY KEY,
+                       pre_shared_key TEXT NOT NULL,
+                       endpoint TEXT NOT NULL,
+                       persistent_keepalive_interval INTEGER NOT NULL DEFAULT 0,
+                       allowed_ips TEXT NOT NULL,
+                       device_public_key TEXT NOT NULL REFERENCES devices(public_key) ON DELETE CASCADE ,
+                       last_handshake INTEGER,
+                       name TEXT
+	)`
 
 	createPeerIndexSql1 = `CREATE INDEX peers_device_public_key ON peers(device_public_key)`
 
