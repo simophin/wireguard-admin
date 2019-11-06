@@ -2,7 +2,6 @@ package sqlite
 
 import (
 	"database/sql"
-	"fmt"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
 	"net"
@@ -11,73 +10,105 @@ import (
 	"time"
 )
 
-type sqlitePeer struct {
-	PublicKey                   string         `db:"public_key"`
-	PresharedKey                sql.NullString `db:"pre_shared_key"`
-	Endpoint                    sql.NullString `db:"endpoint"`
-	PersistentKeepaliveInterval sql.NullInt32  `db:"persistent_keepalive_interval"`
-	AllowedIPs                  sql.NullString `db:"allowed_ips"`
-	NetworkDeviceName           sql.NullString `db:"network_device_name"`
-	Name                        sql.NullString `db:"name"`
-	TimeCreated                 uint64         `db:"time_created"`
-	TimeLastSeen                sql.NullInt64  `db:"time_last_seen"`
+type device struct {
+	PublicKey  string `db:"public_key"`
+	PrivateKey string `db:"private_key"`
+	Name       string `db:"name"`
 }
 
-func (p *sqlitePeer) FromPeerInfo(info repo.PeerInfo) {
-	p.PublicKey = info.PublicKey
-	p.PresharedKey.String = info.PresharedKey
+const (
+	createDeviceTableSql = `CREATE TABLE devices (
+		private_key TEXT NOT NULL PRIMARY,
+		public_key TEXT NOT NULL,
+		name TEXT NOT NULL
+	)`
+
+	createDeviceIndexSql = "CREATE UNIQUE INDEX devices_public_key ON devices(public_key)",
+)
+
+type peer struct {
+	PublicKey                   string        `db:"public_key"`
+	PreSharedKey                string        `db:"pre_shared_key"`
+	Endpoint                    string        `db:"endpoint"`
+	PersistentKeepaliveInterval time.Duration `db:"persistent_keepalive_interval"`
+	AllowedIPs                  string        `db:"allowed_ips"`
+	DevicePublicKey             string        `db:"device_public_key"`
+	LastHandshake               sql.NullTime  `db:"last_handshake"`
+	Name                        string        `db:"name"`
+}
+
+const (
+	createPeerTableSql = `CREATE TABLE IF NOT EXISTS peers (
+			public_key TEXT NOT NULL PRIMARY KEY,
+			pre_shared_key TEXT NOT NULL,
+			endpoint TEXT NOT NULL,
+			persistent_keepalive_interval INTEGER NOT NULL DEFAULT 0,
+			allowed_ips TEXT NOT NULL,
+			device_public_key TEXT NOT NULL REFERENCES devices.public_key ON CASCADE DELETE,
+			last_handshake INTEGER,
+			name TEXT
+		)`
+
+	createPeerIndexSql1 = `CREATE INDEX peers_device_public_key ON peers(device_public_key)`
+)
+
+func fromPeerInfo(info repo.PeerInfo) peer {
+	p := peer{
+		PublicKey:                   info.PublicKey,
+		PreSharedKey:                info.PresharedKey,
+		PersistentKeepaliveInterval: info.PersistentKeepaliveInterval,
+		DevicePublicKey:             info.DevicePublicKey,
+		Name:                        info.Name,
+	}
+
+	if info.Endpoint != nil {
+		p.Endpoint = info.Endpoint.String()
+	}
+
+	if info.LastHandshake != nil {
+		p.LastHandshake.Time = *info.LastHandshake
+	}
 
 	var ips []string
 	for _, ip := range info.AllowedIPs {
 		ips = append(ips, ip.String())
 	}
-	p.AllowedIPs.String = strings.Join(ips, ",")
+	p.AllowedIPs = strings.Join(ips, ",")
 
-	if info.Endpoint != nil {
-		p.Endpoint.String = info.Endpoint.String()
-	}
-
-	p.Name.String = info.Name
-	p.NetworkDeviceName.String = info.NetworkDeviceName
-	p.PersistentKeepaliveInterval.Int32 = int32(info.PersistentKeepaliveInterval)
+	return p
 }
 
-func (p sqlitePeer) ToPeerInfo(info *repo.PeerInfo) error {
-	var err error
+func (p peer) ToPeerInfo() (info repo.PeerInfo, err error) {
+	info = repo.PeerInfo{
+		PublicKey:                   p.PublicKey,
+		PresharedKey:                p.PreSharedKey,
+		PersistentKeepaliveInterval: p.PersistentKeepaliveInterval,
+		DevicePublicKey:             p.DevicePublicKey,
+		Name:                        p.Name,
+	}
 
-	info.PublicKey = p.PublicKey
-	info.PresharedKey = p.PresharedKey.String
+	if p.LastHandshake.Valid {
+		t := p.LastHandshake.Time
+		info.LastHandshake = &t
+	}
 
-	if p.Endpoint.Valid {
-		if info.Endpoint, err = net.ResolveUDPAddr("udp", p.Endpoint.String); err != nil {
-			return err
+	info.Endpoint, err = net.ResolveUDPAddr("udp", p.Endpoint)
+	if err != nil {
+		return
+	}
+
+	ips := strings.Split(p.AllowedIPs, ",")
+	for _, ip := range ips {
+		var ipnet *net.IPNet
+		_, ipnet, err = net.ParseCIDR(ip)
+		if err != nil {
+			return
 		}
+
+		info.AllowedIPs = append(info.AllowedIPs, *ipnet)
 	}
 
-	if p.PersistentKeepaliveInterval.Valid {
-		info.PersistentKeepaliveInterval = time.Duration(p.PersistentKeepaliveInterval.Int32)
-	}
-
-	if p.AllowedIPs.Valid {
-		ips := strings.Split(p.AllowedIPs.String, ",")
-		for _, ip := range ips {
-			if _, ip, e := net.ParseCIDR(ip); e != nil {
-				return e
-			} else {
-				info.AllowedIPs = append(info.AllowedIPs, ip)
-			}
-		}
-	}
-
-	if p.NetworkDeviceName.Valid {
-		info.NetworkDeviceName = p.NetworkDeviceName.String
-	}
-
-	if p.Name.Valid {
-		info.Name = p.Name.String
-	}
-
-	return nil
+	return
 }
 
 type sqliteRepository struct {
@@ -86,96 +117,11 @@ type sqliteRepository struct {
 	listeners map[chan<- interface{}]interface{}
 }
 
-func (s sqliteRepository) GetPeers(publicKeys []string) ([]repo.PeerInfo, error) {
-	rows, err := s.db.Query("SELECT * FROM peers WHERE public_key IN (:1)", publicKeys)
-	if err != nil {
-		return nil, err
-	}
-
-	defer rows.Close()
-
-	var result []repo.PeerInfo
-	var p sqlitePeer
-	var peerInfo repo.PeerInfo
-
-	for rows.Next() {
-		if err := rows.Scan(&p); err != nil {
-			return result, err
-		}
-
-		if err := p.ToPeerInfo(&peerInfo); err != nil {
-			return result, err
-		}
-
-		result = append(result, peerInfo)
-	}
-
-	return result, nil
-}
-
 func (s *sqliteRepository) Close() error {
 	err := s.db.Close()
 	s.listeners = nil
 	s.db = nil
 	return err
-}
-
-func (s sqliteRepository) ListAllPeers(offset uint32, limit uint32) (peers []repo.PeerInfo, total uint32, err error) {
-	tx, err := s.db.Beginx()
-	if err != nil {
-		return peers, 0, err
-	}
-
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		} else {
-			_ = tx.Commit()
-		}
-	}()
-
-	if err = tx.Get(&total, "SELECT COUNT(public_key) FROM peers ORDER BY COALESCE(time_last_seen, time_created) DESC"); err != nil {
-		return
-	}
-
-	var rows *sqlx.Rows
-
-	statement := "SELECT * FROM peers ORDER BY COALESCE(time_last_seen, time_created) DESC"
-	if limit > 0 {
-		statement += fmt.Sprintf(" LIMIT %d, %d", offset, limit)
-	}
-
-	if rows, err = tx.Queryx(statement); err != nil {
-		return
-	}
-
-	defer rows.Close()
-
-	var p sqlitePeer
-	var peerInfo repo.PeerInfo
-
-	for rows.Next() {
-		if err = rows.StructScan(&p); err != nil {
-			return
-		}
-
-		if err = p.ToPeerInfo(&peerInfo); err != nil {
-			return
-		}
-
-		peers = append(peers, peerInfo)
-	}
-
-	return
-}
-
-func (s sqliteRepository) RemovePeers(publicKeys []string) error {
-	if _, err := s.db.Exec("DELETE FROM peers WHERE public_key IN (:1)", publicKeys); err != nil {
-		return err
-	} else {
-		s.NotifyChange()
-		return nil
-	}
 }
 
 func (s sqliteRepository) UpdatePeers(peers []repo.PeerInfo) error {
@@ -199,7 +145,7 @@ func (s sqliteRepository) UpdatePeers(peers []repo.PeerInfo) error {
 		return err
 	}
 
-	var p sqlitePeer
+	var p peer
 	for _, peerInfo := range peers {
 		p.FromPeerInfo(peerInfo)
 		if _, err = st.Exec(p); err != nil {
@@ -211,19 +157,6 @@ func (s sqliteRepository) UpdatePeers(peers []repo.PeerInfo) error {
 }
 
 const (
-	createTableSql = `
-		CREATE TABLE IF NOT EXISTS peers (
-			public_key TEXT NOT NULL PRIMARY KEY,
-			pre_shared_key TEXT,
-			endpoint TEXT,
-			persistent_keepalive_interval INTEGER,
-			allowed_ips TEXT,
-			network_device_name TEXT,
-			time_created INTEGER NOT NULL,
-			time_last_seen INTEGER,
-			name TEXT
-		)
-	`
 	updatePeerSql = `
 		INSERT OR REPLACE INTO peers(
 			public_key, pre_shared_key, endpoint, persistent_keepalive_interval, allowed_ips, network_device_name, time_created, time_last_seen, name
@@ -232,18 +165,34 @@ const (
 	`
 )
 
-func NewSqliteRepository(dsn string) (repo.Repository, error) {
+func NewSqliteRepository(dsn string) (repo repo.Repository, err error) {
 	db, err := sqlx.Connect("sqlite3", dsn)
 	if err != nil {
-		return nil, err
+		return
 	}
 
-	if _, err = db.Exec(createTableSql); err != nil {
-		return nil, err
+	tx, err := db.Beginx()
+	if err != nil {
+		return
 	}
 
-	return &sqliteRepository{
-		db:        db,
-		listeners: make(map[chan<- interface{}]interface{}),
-	}, nil
+	defer func() {
+		if e, ok := recover().(error); ok {
+			err = e
+			_ = tx.Rollback()
+		} else {
+			err = tx.Commit()
+		}
+	}()
+
+	db.MustExec(createDeviceTableSql)
+	db.MustExec(createDeviceIndexSql)
+	db.MustExec(createPeerTableSql)
+	db.MustExec(createPeerIndexSql1)
+
+	repo = &sqliteRepository{
+		db: db,
+	}
+
+	return
 }

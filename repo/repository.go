@@ -1,6 +1,7 @@
 package repo
 
 import (
+	"io"
 	"net"
 	"sync"
 	"time"
@@ -12,11 +13,17 @@ type PeerInfo struct {
 	Endpoint                    *net.UDPAddr
 	PersistentKeepaliveInterval time.Duration
 	AllowedIPs                  []net.IPNet
-	NetworkDeviceName           string
-	TimeLastSeen                *time.Time
+	DevicePublicKey             string
+	LastHandshake               *time.Time
 
-	Name        string
-	TimeCreated time.Time
+	Name string
+}
+
+type DeviceInfo struct {
+	PrivateKey string
+	PublicKey  string
+	ListenPort uint16
+	Name       string
 }
 
 type ChangeNotification interface {
@@ -24,14 +31,31 @@ type ChangeNotification interface {
 	RemoveChangeNotification(channel chan<- interface{})
 }
 
+type PeerOrder int
+
+const (
+	NameAsc           PeerOrder = 0
+	NameDesc          PeerOrder = 1
+	LastHandshakeAsc  PeerOrder = 2
+	LastHandshakeDesc PeerOrder = 3
+)
+
 type Repository interface {
 	ChangeNotification
+	io.Closer
 
-	ListAllPeers(offset uint32, limit uint32) (peers []PeerInfo, total uint32, err error)
-	GetPeers(publicKeys []string) ([]PeerInfo, error)
+	ListDevices() ([]DeviceInfo, error)
+	UpdateDevices(devices []DeviceInfo) error
+	RemoveDevices(pubKeys []string) error
+	ReplaceAllDevices(devices []DeviceInfo) error
+
+	ListPeersByDevices(pubKeys []string, order PeerOrder, offset uint, limit uint) (data []PeerInfo, total uint, err error)
+	ListPeersByKeys(pubKeys []string, order PeerOrder, offset uint, limit uint) (data []PeerInfo, total uint, err error)
+	ListPeers(order PeerOrder, offset uint, limit uint) (data []PeerInfo, total uint, err error)
+
 	RemovePeers(publicKeys []string) error
 	UpdatePeers(peers []PeerInfo) error
-	Close() error
+	ReplaceAllPeers(peers []PeerInfo)
 }
 
 type DefaultChangeNotificationHandler struct {
