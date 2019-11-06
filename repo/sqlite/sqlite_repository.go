@@ -74,10 +74,17 @@ func (p *peer) FromPeerInfo(info repo.PeerInfo) {
 
 	if info.Endpoint != nil {
 		p.Endpoint = info.Endpoint.String()
+	} else {
+		p.Endpoint = ""
 	}
 
 	if info.LastHandshake != nil {
-		p.LastHandshake.Time = *info.LastHandshake
+		p.LastHandshake = sql.NullTime{
+			Time:  *info.LastHandshake,
+			Valid: true,
+		}
+	} else {
+		p.LastHandshake = sql.NullTime{}
 	}
 
 	var ips []string
