@@ -1,6 +1,7 @@
 package repo
 
 import (
+	"errors"
 	"io"
 	"net"
 	"sync"
@@ -34,10 +35,14 @@ type ChangeNotification interface {
 type PeerOrder int
 
 const (
-	NameAsc           PeerOrder = 0
-	NameDesc          PeerOrder = 1
-	LastHandshakeAsc  PeerOrder = 2
-	LastHandshakeDesc PeerOrder = 3
+	OrderNameAsc           PeerOrder = 0
+	OrderNameDesc          PeerOrder = 1
+	OrderLastHandshakeAsc  PeerOrder = 2
+	OrderLastHandshakeDesc PeerOrder = 3
+)
+
+var (
+	InvalidPeerOrder = errors.New("invalid peer order")
 )
 
 type Repository interface {
@@ -55,7 +60,7 @@ type Repository interface {
 
 	RemovePeers(publicKeys []string) error
 	UpdatePeers(peers []PeerInfo) error
-	ReplaceAllPeers(peers []PeerInfo)
+	ReplaceAllPeers(peers []PeerInfo) error
 }
 
 type DefaultChangeNotificationHandler struct {

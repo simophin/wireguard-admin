@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"database/sql"
+	"fmt"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
 	"net"
@@ -14,16 +15,21 @@ type device struct {
 	PublicKey  string `db:"public_key"`
 	PrivateKey string `db:"private_key"`
 	Name       string `db:"name"`
+	ListenPort uint16 `db:"listen_port"`
 }
 
 const (
 	createDeviceTableSql = `CREATE TABLE devices (
-		private_key TEXT NOT NULL PRIMARY,
+		private_key TEXT NOT NULL PRIMARY KEY,
 		public_key TEXT NOT NULL,
-		name TEXT NOT NULL
+		name TEXT NOT NULL,
+		listen_port INTEGER NOT NULL CHECK (listen_port >= 0 AND listen_port < 65536)
 	)`
 
-	createDeviceIndexSql = "CREATE UNIQUE INDEX devices_public_key ON devices(public_key)",
+	createDeviceIndexSql = "CREATE UNIQUE INDEX devices_public_key ON devices(public_key)"
+
+	updateDeviceSql = `INSERT OR REPLACE INTO devices (private_key, public_key, name, listen_port)
+		VALUES (:private_key, :public_key, :name, :listen_port)`
 )
 
 type peer struct {
@@ -50,16 +56,21 @@ const (
 		)`
 
 	createPeerIndexSql1 = `CREATE INDEX peers_device_public_key ON peers(device_public_key)`
+
+	updatePeerSql = `
+		INSERT OR REPLACE INTO peers(
+			public_key, pre_shared_key, endpoint, persistent_keepalive_interval, allowed_ips, device_public_key, last_handshake, name
+		)
+		VALUES (:public_key, :pre_shared_key, :endpoint, :persistent_keepalive_interval, :allowed_ips, :device_public_key, :last_handshake, :name)
+	`
 )
 
-func fromPeerInfo(info repo.PeerInfo) peer {
-	p := peer{
-		PublicKey:                   info.PublicKey,
-		PreSharedKey:                info.PresharedKey,
-		PersistentKeepaliveInterval: info.PersistentKeepaliveInterval,
-		DevicePublicKey:             info.DevicePublicKey,
-		Name:                        info.Name,
-	}
+func (p *peer) FromPeerInfo(info repo.PeerInfo) {
+	p.PublicKey = info.PublicKey
+	p.PreSharedKey = info.PresharedKey
+	p.PersistentKeepaliveInterval = info.PersistentKeepaliveInterval
+	p.DevicePublicKey = info.DevicePublicKey
+	p.Name = info.Name
 
 	if info.Endpoint != nil {
 		p.Endpoint = info.Endpoint.String()
@@ -74,8 +85,6 @@ func fromPeerInfo(info repo.PeerInfo) peer {
 		ips = append(ips, ip.String())
 	}
 	p.AllowedIPs = strings.Join(ips, ",")
-
-	return p
 }
 
 func (p peer) ToPeerInfo() (info repo.PeerInfo, err error) {
@@ -111,10 +120,186 @@ func (p peer) ToPeerInfo() (info repo.PeerInfo, err error) {
 	return
 }
 
+func (d device) ToDeviceInfo() repo.DeviceInfo {
+	return repo.DeviceInfo{
+		PrivateKey: d.PrivateKey,
+		PublicKey:  d.PublicKey,
+		ListenPort: d.ListenPort,
+		Name:       d.Name,
+	}
+}
+
+func (d *device) fromDeviceInfo(info repo.DeviceInfo) {
+	d.PublicKey = info.PublicKey
+	d.PrivateKey = info.PrivateKey
+	d.Name = info.Name
+	d.ListenPort = info.ListenPort
+}
+
 type sqliteRepository struct {
 	repo.DefaultChangeNotificationHandler
 	db        *sqlx.DB
 	listeners map[chan<- interface{}]interface{}
+}
+
+func (s sqliteRepository) ListDevices() (info []repo.DeviceInfo, err error) {
+	var rows *sqlx.Rows
+	rows, err = s.db.Queryx("SELECT * FROM devices")
+	if err != nil {
+		return
+	}
+
+	defer rows.Close()
+
+	var d device
+	for rows.Next() {
+		if err = rows.Scan(&d); err != nil {
+			return
+		}
+
+		info = append(info, d.ToDeviceInfo())
+	}
+	return
+}
+
+func (s sqliteRepository) upsertDevices(removeAll bool, devices []repo.DeviceInfo) error {
+	tx, err := s.db.Beginx()
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		if e, ok := recover().(error); ok {
+			err = e
+			_ = tx.Rollback()
+		} else {
+			if err = tx.Commit(); err != nil {
+				s.NotifyChange()
+			}
+		}
+	}()
+
+	if removeAll {
+		tx.MustExec("DELETE FROM devices WHERE 1")
+	}
+
+	var d device
+	for _, info := range devices {
+		d.fromDeviceInfo(info)
+		tx.MustExec(updateDeviceSql, d)
+	}
+
+	return err
+}
+
+func (s sqliteRepository) UpdateDevices(devices []repo.DeviceInfo) error {
+	return s.upsertDevices(false, devices)
+}
+
+func (s sqliteRepository) RemoveDevices(pubKeys []string) error {
+	if _, err := s.db.Exec("DELETE FROM devices WHERE public_key IN (:1)", pubKeys); err != nil {
+		return err
+	} else {
+		s.NotifyChange()
+		return nil
+	}
+}
+
+func (s sqliteRepository) ReplaceAllDevices(devices []repo.DeviceInfo) error {
+	return s.upsertDevices(true, devices)
+}
+
+func (s sqliteRepository) listPeersCommon(offset uint, limit uint, order repo.PeerOrder, whereStatement string, args ...interface{}) (data []repo.PeerInfo, total uint, err error) {
+	var tx *sqlx.Tx
+	tx, err = s.db.Beginx()
+	if err != nil {
+		return
+	}
+
+	defer func() {
+		_ = tx.Commit()
+	}()
+
+	var row *sqlx.Row
+	if row = tx.QueryRowx(fmt.Sprint("SELECT COUNT(public_key) FROM peers WHERE", whereStatement), args...); row.Err() != nil {
+		err = row.Err()
+		return
+	}
+
+	if err = row.Scan(&total); err != nil {
+		return
+	}
+
+	var orderByStatement string
+	switch order {
+	case repo.OrderLastHandshakeAsc:
+		orderByStatement = "last_handshake ASC, name ASC"
+		break
+	case repo.OrderLastHandshakeDesc:
+		orderByStatement = "last_handshake DESC, name ASC"
+		break
+	case repo.OrderNameAsc:
+		orderByStatement = "name ASC"
+		break
+	case repo.OrderNameDesc:
+		orderByStatement = "name DESC"
+		break
+	default:
+		panic(repo.InvalidPeerOrder)
+	}
+
+	var st string
+	if limit > 0 {
+		st = fmt.Sprintf("SELECT * FROM peers WHERE %s ORDER BY %s LIMIT %v, %v", whereStatement, orderByStatement, offset, limit)
+	} else {
+		st = fmt.Sprintf("SELECT * FROM peers WHERE %s ORDER BY %s", whereStatement, orderByStatement)
+	}
+
+	var rows *sqlx.Rows
+	if rows, err = tx.Queryx(st, args...); err != nil {
+		return
+	}
+	defer rows.Close()
+
+	var p peer
+	for rows.Next() {
+		if err = rows.StructScan(&p); err != nil {
+			return
+		}
+
+		if info, e := p.ToPeerInfo(); e != nil {
+			err = e
+			return
+		} else {
+			data = append(data, info)
+		}
+	}
+	return
+}
+
+func (s sqliteRepository) ListPeersByDevices(pubKeys []string, order repo.PeerOrder, offset uint, limit uint) (data []repo.PeerInfo, total uint, err error) {
+	return s.listPeersCommon(offset, limit, order, "device_public_key IN (:1)", pubKeys)
+}
+
+func (s sqliteRepository) ListPeersByKeys(pubKeys []string, order repo.PeerOrder, offset uint, limit uint) (data []repo.PeerInfo, total uint, err error) {
+	return s.listPeersCommon(offset, limit, order, "public_keys IN (:1)", pubKeys)
+}
+
+func (s sqliteRepository) ListPeers(order repo.PeerOrder, offset uint, limit uint) (data []repo.PeerInfo, total uint, err error) {
+	return s.listPeersCommon(offset, limit, order, "1")
+}
+
+func (s sqliteRepository) RemovePeers(publicKeys []string) error {
+	if _, err := s.db.Exec("DELETE FROM peers WHERE public_key IN (:1)", publicKeys); err != nil {
+		return err
+	} else {
+		s.NotifyChange()
+		return nil
+	}
+}
+
+func (s sqliteRepository) ReplaceAllPeers(peers []repo.PeerInfo) error {
+	return s.upsertPeers(true, peers)
 }
 
 func (s *sqliteRepository) Close() error {
@@ -124,46 +309,40 @@ func (s *sqliteRepository) Close() error {
 	return err
 }
 
-func (s sqliteRepository) UpdatePeers(peers []repo.PeerInfo) error {
+func (s sqliteRepository) upsertPeers(removeAll bool, peers []repo.PeerInfo) error {
 	tx, err := s.db.Beginx()
 	if err != nil {
 		return err
 	}
 
 	defer func() {
-		if err != nil {
+		if e, ok := recover().(error); ok {
+			err = e
 			_ = tx.Rollback()
 		} else {
 			if err = tx.Commit(); err == nil {
 				s.NotifyChange()
 			}
 		}
+
 	}()
 
-	st, err := tx.PrepareNamed(updatePeerSql)
-	if err != nil {
-		return err
+	if removeAll {
+		tx.MustExec("DELETE FROM peers WHERE 1")
 	}
 
 	var p peer
 	for _, peerInfo := range peers {
 		p.FromPeerInfo(peerInfo)
-		if _, err = st.Exec(p); err != nil {
-			return err
-		}
+		tx.MustExec(updatePeerSql, p)
 	}
 
 	return nil
 }
 
-const (
-	updatePeerSql = `
-		INSERT OR REPLACE INTO peers(
-			public_key, pre_shared_key, endpoint, persistent_keepalive_interval, allowed_ips, network_device_name, time_created, time_last_seen, name
-		)
-		VALUES (:public_key, :pre_shared_key, :endpoint, :persistent_keepalive_interval, :allowed_ips, :network_device_name, :time_created, :time_last_seen, :name)
-	`
-)
+func (s sqliteRepository) UpdatePeers(peers []repo.PeerInfo) error {
+	return s.upsertPeers(false, peers)
+}
 
 func NewSqliteRepository(dsn string) (repo repo.Repository, err error) {
 	db, err := sqlx.Connect("sqlite3", dsn)
