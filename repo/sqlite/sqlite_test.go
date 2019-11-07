@@ -249,10 +249,56 @@ func Test_peer_ToPeerInfo(t *testing.T) {
 		wantErr  bool
 	}{
 		{
-			name:     "",
-			fields:   fields{},
-			wantInfo: repo.PeerInfo{},
-			wantErr:  false,
+			name: "correct info",
+			fields: fields{
+				PublicKey:                   "pubkey",
+				PreSharedKey:                "presharedkey",
+				Endpoint:                    "1.2.3.4:5000",
+				PersistentKeepaliveInterval: 20,
+				AllowedIPs:                  "1.2.3.0/24,4.5.6.7/32",
+				DevicePublicKey:             "device_pubkey",
+				LastHandshake:               sql.NullTime{},
+				Name:                        "name",
+			},
+			wantInfo: repo.PeerInfo{
+				PublicKey:                   "pubkey",
+				PresharedKey:                "presharedkey",
+				Endpoint:                    mustResolveUdp("1.2.3.4:5000"),
+				PersistentKeepaliveInterval: 20,
+				AllowedIPs:                  []net.IPNet{mustResolveIPNet("1.2.3.4/24"), mustResolveIPNet("4.5.6.7/32")},
+				DevicePublicKey:             "device_pubkey",
+				LastHandshake:               nil,
+				Name:                        "name",
+			},
+			wantErr: false,
+		},
+		{
+			name: "incorrect endpoint",
+			fields: fields{
+				PublicKey:                   "pubkey",
+				PreSharedKey:                "presharedkey",
+				Endpoint:                    "not an address",
+				PersistentKeepaliveInterval: 20,
+				AllowedIPs:                  "1.2.3.0/24,4.5.6.7/32",
+				DevicePublicKey:             "device_pubkey",
+				LastHandshake:               sql.NullTime{},
+				Name:                        "name",
+			},
+			wantErr: true,
+		},
+		{
+			name: "incorrect allowed ips",
+			fields: fields{
+				PublicKey:                   "pubkey",
+				PreSharedKey:                "presharedkey",
+				Endpoint:                    "1.2.3.4:5000",
+				PersistentKeepaliveInterval: 20,
+				AllowedIPs:                  "not an address",
+				DevicePublicKey:             "device_pubkey",
+				LastHandshake:               sql.NullTime{},
+				Name:                        "name",
+			},
+			wantErr: true,
 		},
 	}
 	for _, tt := range tests {
@@ -268,11 +314,11 @@ func Test_peer_ToPeerInfo(t *testing.T) {
 				Name:                        tt.fields.Name,
 			}
 			gotInfo, err := p.ToPeerInfo()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ToPeerInfo() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !reflect.DeepEqual(gotInfo, tt.wantInfo) {
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("ToPeerInfo() error = %v, wantErr: %v", err, tt.wantErr)
+				}
+			} else if !reflect.DeepEqual(gotInfo, tt.wantInfo) {
 				t.Errorf("ToPeerInfo() gotInfo = %v, want %v", gotInfo, tt.wantInfo)
 			}
 		})
