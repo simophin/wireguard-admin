@@ -7,6 +7,7 @@ import (
 	"net"
 	"nz.cloudwalker/wireguard-webadmin/repo"
 	"reflect"
+	"sort"
 	"testing"
 	"time"
 )
@@ -326,10 +327,13 @@ func Test_peer_ToPeerInfo(t *testing.T) {
 	}
 }
 
+var repoSeq = 0
+
 func mustCreateRepository(t *testing.T) *sqliteRepository {
-	r, err := NewSqliteRepository("file:test.db?cache=shared&mode=memory")
+	repoSeq++
+	r, err := NewSqliteRepository(fmt.Sprintf("file:test%d.db?cache=shared&mode=memory", repoSeq))
 	if err != nil {
-		return nil
+		panic(err)
 	}
 
 	return r.(*sqliteRepository)
@@ -357,6 +361,7 @@ func genNewDevices(num int) []repo.DeviceInfo {
 			Name:       fmt.Sprint("device", i),
 		})
 	}
+	return ret
 }
 
 func Test_sqliteRepository_ListDevices(t *testing.T) {
@@ -369,24 +374,42 @@ func Test_sqliteRepository_ListDevices(t *testing.T) {
 		{
 			name:     "empty",
 			arg:      nil,
-			wantInfo: make([]repo.DeviceInfo, 0),
+			wantInfo: nil,
 			wantErr:  false,
 		},
 		{
 			name:     "one element",
-			arg:      nil,
-			wantInfo: make([]repo.DeviceInfo, 0),
+			arg:      genNewDevices(1),
+			wantInfo: genNewDevices(1),
+			wantErr:  false,
+		},
+		{
+			name:     "multiple elements",
+			arg:      genNewDevices(10),
+			wantInfo: genNewDevices(10),
 			wantErr:  false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := mustCreateRepository(t)
+			if err := s.UpdateDevices(tt.arg); err != nil {
+				t.Error("error updating devices:", err)
+			}
+
 			gotInfo, err := s.ListDevices()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ListDevices() error = %v, wantErr %v", err, tt.wantErr)
-				return
 			}
+
+			sort.Slice(gotInfo, func(i, j int) bool {
+				return gotInfo[i].Name < gotInfo[j].Name
+			})
+
+			sort.Slice(tt.wantInfo, func(i, j int) bool {
+				return tt.wantInfo[i].Name < tt.wantInfo[j].Name
+			})
+
 			if !reflect.DeepEqual(gotInfo, tt.wantInfo) {
 				t.Errorf("ListDevices() gotInfo = %v, want %v", gotInfo, tt.wantInfo)
 			}
@@ -394,12 +417,32 @@ func Test_sqliteRepository_ListDevices(t *testing.T) {
 	}
 }
 
-func Test_sqliteRepository_ListPeers(t *testing.T) {
-	type fields struct {
-		DefaultChangeNotificationHandler repo.DefaultChangeNotificationHandler
-		db                               *sqlx.DB
-		listeners                        map[chan<- interface{}]interface{}
+func genPeers(devices []repo.DeviceInfo, numPeers int, t *testing.T) []repo.PeerInfo {
+	ret := make([]repo.PeerInfo, 0, numPeers)
+	j := 0
+	for i := 0; i < numPeers; i++ {
+		now := time.Now().Add(time.Duration(i))
+		p := repo.PeerInfo{
+			PublicKey:                   fmt.Sprint("pubkey", i),
+			PresharedKey:                fmt.Sprint("sharekey", i),
+			Endpoint:                    &net.UDPAddr{},
+			PersistentKeepaliveInterval: time.Duration(i),
+			AllowedIPs:                  []net.IPNet{mustResolveIPNet(fmt.Sprintf("1.2.3.%v/24", i%254))},
+			DevicePublicKey:             devices[j].PublicKey,
+			Name:                        fmt.Sprint("name", i),
+		}
+		if i%3 == 0 {
+			p.LastHandshake = &now
+		}
+
+		ret = append(ret, p)
+		j++
 	}
+
+	return ret
+}
+
+func Test_sqliteRepository_ListPeers(t *testing.T) {
 	type args struct {
 		order  repo.PeerOrder
 		offset uint
@@ -407,20 +450,24 @@ func Test_sqliteRepository_ListPeers(t *testing.T) {
 	}
 	tests := []struct {
 		name      string
-		fields    fields
 		args      args
 		wantData  []repo.PeerInfo
 		wantTotal uint
 		wantErr   bool
 	}{
-		// TODO: Add test cases.
+		{
+			name:      "normal",
+			args:      args{},
+			wantData:  genPeers(),
+			wantTotal: 0,
+			wantErr:   false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := sqliteRepository{
 				DefaultChangeNotificationHandler: tt.fields.DefaultChangeNotificationHandler,
 				db:                               tt.fields.db,
-				listeners:                        tt.fields.listeners,
 			}
 			gotData, gotTotal, err := s.ListPeers(tt.args.order, tt.args.offset, tt.args.limit)
 			if (err != nil) != tt.wantErr {
@@ -464,7 +511,6 @@ func Test_sqliteRepository_ListPeersByDevices(t *testing.T) {
 			s := sqliteRepository{
 				DefaultChangeNotificationHandler: tt.fields.DefaultChangeNotificationHandler,
 				db:                               tt.fields.db,
-				listeners:                        tt.fields.listeners,
 			}
 			gotData, gotTotal, err := s.ListPeersByDevices(tt.args.pubKeys, tt.args.order, tt.args.offset, tt.args.limit)
 			if (err != nil) != tt.wantErr {
@@ -508,7 +554,6 @@ func Test_sqliteRepository_ListPeersByKeys(t *testing.T) {
 			s := sqliteRepository{
 				DefaultChangeNotificationHandler: tt.fields.DefaultChangeNotificationHandler,
 				db:                               tt.fields.db,
-				listeners:                        tt.fields.listeners,
 			}
 			gotData, gotTotal, err := s.ListPeersByKeys(tt.args.pubKeys, tt.args.order, tt.args.offset, tt.args.limit)
 			if (err != nil) != tt.wantErr {
@@ -547,7 +592,6 @@ func Test_sqliteRepository_RemoveDevices(t *testing.T) {
 			s := sqliteRepository{
 				DefaultChangeNotificationHandler: tt.fields.DefaultChangeNotificationHandler,
 				db:                               tt.fields.db,
-				listeners:                        tt.fields.listeners,
 			}
 			if err := s.RemoveDevices(tt.args.pubKeys); (err != nil) != tt.wantErr {
 				t.Errorf("RemoveDevices() error = %v, wantErr %v", err, tt.wantErr)
@@ -578,7 +622,6 @@ func Test_sqliteRepository_RemovePeers(t *testing.T) {
 			s := sqliteRepository{
 				DefaultChangeNotificationHandler: tt.fields.DefaultChangeNotificationHandler,
 				db:                               tt.fields.db,
-				listeners:                        tt.fields.listeners,
 			}
 			if err := s.RemovePeers(tt.args.publicKeys); (err != nil) != tt.wantErr {
 				t.Errorf("RemovePeers() error = %v, wantErr %v", err, tt.wantErr)
@@ -609,7 +652,6 @@ func Test_sqliteRepository_ReplaceAllDevices(t *testing.T) {
 			s := sqliteRepository{
 				DefaultChangeNotificationHandler: tt.fields.DefaultChangeNotificationHandler,
 				db:                               tt.fields.db,
-				listeners:                        tt.fields.listeners,
 			}
 			if err := s.ReplaceAllDevices(tt.args.devices); (err != nil) != tt.wantErr {
 				t.Errorf("ReplaceAllDevices() error = %v, wantErr %v", err, tt.wantErr)
@@ -640,7 +682,6 @@ func Test_sqliteRepository_ReplaceAllPeers(t *testing.T) {
 			s := sqliteRepository{
 				DefaultChangeNotificationHandler: tt.fields.DefaultChangeNotificationHandler,
 				db:                               tt.fields.db,
-				listeners:                        tt.fields.listeners,
 			}
 			if err := s.ReplaceAllPeers(tt.args.peers); (err != nil) != tt.wantErr {
 				t.Errorf("ReplaceAllPeers() error = %v, wantErr %v", err, tt.wantErr)
@@ -671,7 +712,6 @@ func Test_sqliteRepository_UpdateDevices(t *testing.T) {
 			s := sqliteRepository{
 				DefaultChangeNotificationHandler: tt.fields.DefaultChangeNotificationHandler,
 				db:                               tt.fields.db,
-				listeners:                        tt.fields.listeners,
 			}
 			if err := s.UpdateDevices(tt.args.devices); (err != nil) != tt.wantErr {
 				t.Errorf("UpdateDevices() error = %v, wantErr %v", err, tt.wantErr)
@@ -702,7 +742,6 @@ func Test_sqliteRepository_UpdatePeers(t *testing.T) {
 			s := sqliteRepository{
 				DefaultChangeNotificationHandler: tt.fields.DefaultChangeNotificationHandler,
 				db:                               tt.fields.db,
-				listeners:                        tt.fields.listeners,
 			}
 			if err := s.UpdatePeers(tt.args.peers); (err != nil) != tt.wantErr {
 				t.Errorf("UpdatePeers() error = %v, wantErr %v", err, tt.wantErr)
@@ -739,7 +778,6 @@ func Test_sqliteRepository_listPeersCommon(t *testing.T) {
 			s := sqliteRepository{
 				DefaultChangeNotificationHandler: tt.fields.DefaultChangeNotificationHandler,
 				db:                               tt.fields.db,
-				listeners:                        tt.fields.listeners,
 			}
 			gotData, gotTotal, err := s.listPeersCommon(tt.args.offset, tt.args.limit, tt.args.order, tt.args.whereStatement, tt.args.args...)
 			if (err != nil) != tt.wantErr {
@@ -779,7 +817,6 @@ func Test_sqliteRepository_upsertDevices(t *testing.T) {
 			s := sqliteRepository{
 				DefaultChangeNotificationHandler: tt.fields.DefaultChangeNotificationHandler,
 				db:                               tt.fields.db,
-				listeners:                        tt.fields.listeners,
 			}
 			if err := s.upsertDevices(tt.args.removeAll, tt.args.devices); (err != nil) != tt.wantErr {
 				t.Errorf("upsertDevices() error = %v, wantErr %v", err, tt.wantErr)
@@ -811,7 +848,6 @@ func Test_sqliteRepository_upsertPeers(t *testing.T) {
 			s := sqliteRepository{
 				DefaultChangeNotificationHandler: tt.fields.DefaultChangeNotificationHandler,
 				db:                               tt.fields.db,
-				listeners:                        tt.fields.listeners,
 			}
 			if err := s.upsertPeers(tt.args.removeAll, tt.args.peers); (err != nil) != tt.wantErr {
 				t.Errorf("upsertPeers() error = %v, wantErr %v", err, tt.wantErr)

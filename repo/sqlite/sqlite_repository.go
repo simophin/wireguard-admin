@@ -159,7 +159,7 @@ func (s sqliteRepository) ListDevices() (info []repo.DeviceInfo, err error) {
 
 	var d device
 	for rows.Next() {
-		if err = rows.Scan(&d); err != nil {
+		if err = rows.StructScan(&d); err != nil {
 			return
 		}
 
@@ -175,24 +175,32 @@ func (s sqliteRepository) upsertDevices(removeAll bool, devices []repo.DeviceInf
 	}
 
 	defer func() {
-		if e, ok := recover().(error); ok {
-			err = e
+		if err != nil {
 			_ = tx.Rollback()
 		} else {
-			if err = tx.Commit(); err != nil {
+			if err = tx.Commit(); err == nil {
 				s.NotifyChange()
 			}
 		}
 	}()
 
 	if removeAll {
-		tx.MustExec("DELETE FROM devices WHERE 1")
+		if _, err = tx.Exec("DELETE FROM devices WHERE 1"); err != nil {
+			return err
+		}
+	}
+
+	st, err := tx.PrepareNamed(updateDeviceSql)
+	if err != nil {
+		return err
 	}
 
 	var d device
 	for _, info := range devices {
 		d.fromDeviceInfo(info)
-		tx.MustExec(updateDeviceSql, d)
+		if _, err = st.Exec(d); err != nil {
+			return err
+		}
 	}
 
 	return err
@@ -239,10 +247,10 @@ func (s sqliteRepository) listPeersCommon(offset uint, limit uint, order repo.Pe
 	var orderByStatement string
 	switch order {
 	case repo.OrderLastHandshakeAsc:
-		orderByStatement = "last_handshake ASC, name ASC"
+		orderByStatement = "last_handshake ASC, public_key ASC"
 		break
 	case repo.OrderLastHandshakeDesc:
-		orderByStatement = "last_handshake DESC, name ASC"
+		orderByStatement = "last_handshake DESC, public_key ASC"
 		break
 	case repo.OrderNameAsc:
 		orderByStatement = "name ASC"
