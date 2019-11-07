@@ -28,6 +28,7 @@ type DeviceInfo struct {
 }
 
 type ChangeNotification interface {
+	io.Closer
 	AddChangeNotification(channel chan<- interface{})
 	RemoveChangeNotification(channel chan<- interface{})
 }
@@ -47,7 +48,6 @@ var (
 
 type Repository interface {
 	ChangeNotification
-	io.Closer
 
 	ListDevices() ([]DeviceInfo, error)
 	UpdateDevices(devices []DeviceInfo) error
@@ -66,6 +66,18 @@ type Repository interface {
 type DefaultChangeNotificationHandler struct {
 	listeners      map[chan<- interface{}]interface{}
 	listenersMutex sync.Mutex
+}
+
+func (d *DefaultChangeNotificationHandler) Close() error {
+	d.listenersMutex.Lock()
+	defer d.listenersMutex.Unlock()
+
+	for c, _ := range d.listeners {
+		close(c)
+	}
+
+	d.listeners = make(map[chan<- interface{}]interface{})
+	return nil
 }
 
 func (d DefaultChangeNotificationHandler) NotifyChange() {

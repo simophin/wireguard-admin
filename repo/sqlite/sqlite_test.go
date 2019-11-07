@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"database/sql"
+	"fmt"
 	"github.com/jmoiron/sqlx"
 	"net"
 	"nz.cloudwalker/wireguard-webadmin/repo"
@@ -325,54 +326,62 @@ func Test_peer_ToPeerInfo(t *testing.T) {
 	}
 }
 
+func mustCreateRepository(t *testing.T) *sqliteRepository {
+	r, err := NewSqliteRepository("file:test.db?cache=shared&mode=memory")
+	if err != nil {
+		return nil
+	}
+
+	return r.(*sqliteRepository)
+}
+
 func Test_sqliteRepository_Close(t *testing.T) {
-	type fields struct {
-		DefaultChangeNotificationHandler repo.DefaultChangeNotificationHandler
-		db                               *sqlx.DB
-		listeners                        map[chan<- interface{}]interface{}
+	r := mustCreateRepository(t)
+
+	if err := r.Close(); err != nil {
+		t.Error("error closing repo:", err)
 	}
-	tests := []struct {
-		name    string
-		fields  fields
-		wantErr bool
-	}{
-		// TODO: Add test cases.
+
+	if r.db != nil {
+		t.Error("database is not closed")
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			s := &sqliteRepository{
-				DefaultChangeNotificationHandler: tt.fields.DefaultChangeNotificationHandler,
-				db:                               tt.fields.db,
-				listeners:                        tt.fields.listeners,
-			}
-			if err := s.Close(); (err != nil) != tt.wantErr {
-				t.Errorf("Close() error = %v, wantErr %v", err, tt.wantErr)
-			}
+}
+
+func genNewDevices(num int) []repo.DeviceInfo {
+	var ret []repo.DeviceInfo
+	for i := 0; i < num; i++ {
+		ret = append(ret, repo.DeviceInfo{
+			PrivateKey: fmt.Sprint("privatekey", i),
+			PublicKey:  fmt.Sprint("publickey", i),
+			ListenPort: uint16(i),
+			Name:       fmt.Sprint("device", i),
 		})
 	}
 }
 
 func Test_sqliteRepository_ListDevices(t *testing.T) {
-	type fields struct {
-		DefaultChangeNotificationHandler repo.DefaultChangeNotificationHandler
-		db                               *sqlx.DB
-		listeners                        map[chan<- interface{}]interface{}
-	}
 	tests := []struct {
 		name     string
-		fields   fields
+		arg      []repo.DeviceInfo
 		wantInfo []repo.DeviceInfo
 		wantErr  bool
 	}{
-		// TODO: Add test cases.
+		{
+			name:     "empty",
+			arg:      nil,
+			wantInfo: make([]repo.DeviceInfo, 0),
+			wantErr:  false,
+		},
+		{
+			name:     "one element",
+			arg:      nil,
+			wantInfo: make([]repo.DeviceInfo, 0),
+			wantErr:  false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := sqliteRepository{
-				DefaultChangeNotificationHandler: tt.fields.DefaultChangeNotificationHandler,
-				db:                               tt.fields.db,
-				listeners:                        tt.fields.listeners,
-			}
+			s := mustCreateRepository(t)
 			gotInfo, err := s.ListDevices()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ListDevices() error = %v, wantErr %v", err, tt.wantErr)

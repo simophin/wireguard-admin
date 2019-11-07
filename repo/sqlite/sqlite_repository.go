@@ -145,8 +145,7 @@ func (d *device) fromDeviceInfo(info repo.DeviceInfo) {
 
 type sqliteRepository struct {
 	repo.DefaultChangeNotificationHandler
-	db        *sqlx.DB
-	listeners map[chan<- interface{}]interface{}
+	db *sqlx.DB
 }
 
 func (s sqliteRepository) ListDevices() (info []repo.DeviceInfo, err error) {
@@ -311,8 +310,8 @@ func (s sqliteRepository) ReplaceAllPeers(peers []repo.PeerInfo) error {
 
 func (s *sqliteRepository) Close() error {
 	err := s.db.Close()
-	s.listeners = nil
 	s.db = nil
+	err = s.DefaultChangeNotificationHandler.Close()
 	return err
 }
 
