@@ -466,7 +466,7 @@ func Test_sqliteRepository_ListPeers(t *testing.T) {
 				order:    repo.OrderNameAsc,
 				offset:   5,
 			},
-			wantData:  genPeers(genNewDevices(1), 10, repo.OrderNameAsc, t)[5:7],
+			wantData:  genPeers(genNewDevices(1), 10, repo.OrderNameAsc, t),
 			wantTotal: 10,
 			wantErr:   false,
 		},
