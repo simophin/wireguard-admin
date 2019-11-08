@@ -45,6 +45,8 @@ const (
 
 var (
 	InvalidPeerOrder = errors.New("invalid peer order")
+
+	OutOfRange = errors.New("out of range")
 )
 
 func (o PeerOrder) LessFunc(peers []PeerInfo) func(lh, rh int) bool {
