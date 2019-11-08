@@ -237,13 +237,13 @@ func (s sqliteRepository) listPeersCommon(offset uint, limit uint, order repo.Pe
 		orderByStatement = "last_handshake ASC, public_key ASC"
 		break
 	case repo.OrderLastHandshakeDesc:
-		orderByStatement = "last_handshake DESC, public_key ASC"
+		orderByStatement = "last_handshake DESC, public_key DESC"
 		break
 	case repo.OrderNameAsc:
-		orderByStatement = "name ASC"
+		orderByStatement = "name ASC, public_key ASC"
 		break
 	case repo.OrderNameDesc:
-		orderByStatement = "name DESC"
+		orderByStatement = "name DESC, public_key DESC"
 		break
 	default:
 		panic(repo.InvalidPeerOrder)
@@ -253,7 +253,7 @@ func (s sqliteRepository) listPeersCommon(offset uint, limit uint, order repo.Pe
 	if limit > 0 {
 		st = fmt.Sprintf("SELECT * FROM peers WHERE %s ORDER BY %s LIMIT %v, %v", whereStatement, orderByStatement, offset, limit)
 	} else {
-		st = fmt.Sprintf("SELECT * FROM peers WHERE %s ORDER BY %s", whereStatement, orderByStatement)
+		st = fmt.Sprintf("SELECT * FROM peers WHERE %s ORDER BY %s LIMIT -1 OFFSET %v", whereStatement, orderByStatement, offset)
 	}
 
 	var rows *sqlx.Rows

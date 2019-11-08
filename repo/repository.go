@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"nz.cloudwalker/wireguard-webadmin/utils"
 	"sync"
 	"time"
 )
@@ -50,41 +51,27 @@ func (o PeerOrder) LessFunc(peers []PeerInfo) func(lh, rh int) bool {
 	switch o {
 	case OrderNameAsc:
 		return func(i, j int) bool {
-			lh := peers[i]
-			rh := peers[j]
-			if lh.Name == rh.Name {
-				return lh.PublicKey < rh.PublicKey
+			lhs, rhs := peers[i], peers[j]
+			if lhs.Name == rhs.Name {
+				return lhs.PublicKey < rhs.PublicKey
 			}
-			return lh.Name < rh.Name
+			return lhs.Name < rhs.Name
 		}
 	case OrderLastHandshakeAsc:
 		return func(i, j int) bool {
-			lh := peers[i]
-			rh := peers[j]
-			if lh.LastHandshake == rh.LastHandshake {
-				return lh.PublicKey < rh.PublicKey
+			lhs, rhs := peers[i], peers[j]
+			if lhs.LastHandshake == rhs.LastHandshake {
+				return lhs.PublicKey < rhs.PublicKey
 			}
-			return lh.LastHandshake < rh.LastHandshake
+			return lhs.LastHandshake < rhs.LastHandshake
 		}
 
 	case OrderNameDesc:
-		{
-			f := OrderNameAsc.LessFunc(peers)
-			return func(lh, rh int) bool {
-				return !f(lh, rh)
-			}
-		}
+		return utils.ReverseLessFunc(OrderNameAsc.LessFunc(peers))
 	case OrderLastHandshakeDesc:
-		{
-			f := OrderLastHandshakeAsc.LessFunc(peers)
-			return func(lh, rh int) bool {
-				return !f(lh, rh)
-			}
-		}
+		return utils.ReverseLessFunc(OrderLastHandshakeAsc.LessFunc(peers))
 	default:
-		{
-			panic(errors.New("repository: unable to create less func: unknown order type"))
-		}
+		panic(InvalidPeerOrder)
 	}
 }
 

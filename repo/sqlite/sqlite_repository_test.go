@@ -411,7 +411,7 @@ func genPeers(devices []repo.DeviceInfo, numPeers int, order repo.PeerOrder, t *
 	ret := make([]repo.PeerInfo, 0, numPeers)
 	j := 0
 	for i := 0; i < numPeers; i++ {
-		now := time.Now().Add(time.Duration(i))
+		now := time.Now().Add(time.Duration(i) * time.Minute)
 		p := repo.PeerInfo{
 			PublicKey:                   fmt.Sprint("pubkey", i),
 			PresharedKey:                fmt.Sprint("sharekey", i),
@@ -419,10 +419,10 @@ func genPeers(devices []repo.DeviceInfo, numPeers int, order repo.PeerOrder, t *
 			PersistentKeepaliveInterval: time.Duration(i),
 			AllowedIPs:                  []net.IPNet{mustResolveIPNet(fmt.Sprintf("1.2.3.%v/24", i%254))},
 			DevicePublicKey:             devices[j%len(devices)].PublicKey,
-			Name:                        fmt.Sprint("name", i),
 		}
-		if i%3 == 0 {
+		if i%3 != 0 {
 			p.LastHandshake = now.Unix()
+			p.Name = fmt.Sprint("name", i)
 		}
 
 		ret = append(ret, p)
@@ -450,7 +450,7 @@ func Test_sqliteRepository_ListPeers(t *testing.T) {
 		{
 			name: "offset & limit",
 			args: args{
-				allPeers: genPeers(genNewDevices(1), 10, repo.OrderNameDesc, t),
+				allPeers: genPeers(genNewDevices(1), 10, repo.OrderNameAsc, t),
 				order:    repo.OrderNameAsc,
 				offset:   5,
 				limit:    2,
@@ -462,12 +462,52 @@ func Test_sqliteRepository_ListPeers(t *testing.T) {
 		{
 			name: "offset & no limit",
 			args: args{
-				allPeers: genPeers(genNewDevices(1), 10, repo.OrderNameDesc, t),
-				order:    repo.OrderNameAsc,
+				allPeers: genPeers(genNewDevices(1), 20, repo.OrderNameDesc, t),
+				order:    repo.OrderNameDesc,
 				offset:   5,
 			},
-			wantData:  genPeers(genNewDevices(1), 10, repo.OrderNameAsc, t)[5:7],
-			wantTotal: 10,
+			wantData:  genPeers(genNewDevices(1), 20, repo.OrderNameDesc, t)[5:20],
+			wantTotal: 20,
+			wantErr:   false,
+		},
+		{
+			name: "order by name asc",
+			args: args{
+				allPeers: genPeers(genNewDevices(1), 5, repo.OrderNameDesc, t),
+				order:    repo.OrderNameAsc,
+			},
+			wantData:  genPeers(genNewDevices(1), 5, repo.OrderNameAsc, t),
+			wantTotal: 5,
+			wantErr:   false,
+		},
+		{
+			name: "order by name desc",
+			args: args{
+				allPeers: genPeers(genNewDevices(1), 5, repo.OrderNameAsc, t),
+				order:    repo.OrderNameDesc,
+			},
+			wantData:  genPeers(genNewDevices(1), 5, repo.OrderNameDesc, t),
+			wantTotal: 5,
+			wantErr:   false,
+		},
+		{
+			name: "order by last handshake asc",
+			args: args{
+				allPeers: genPeers(genNewDevices(1), 5, repo.OrderLastHandshakeDesc, t),
+				order:    repo.OrderLastHandshakeAsc,
+			},
+			wantData:  genPeers(genNewDevices(1), 5, repo.OrderLastHandshakeAsc, t),
+			wantTotal: 5,
+			wantErr:   false,
+		},
+		{
+			name: "order by last handshake desc",
+			args: args{
+				allPeers: genPeers(genNewDevices(1), 5, repo.OrderLastHandshakeAsc, t),
+				order:    repo.OrderLastHandshakeDesc,
+			},
+			wantData:  genPeers(genNewDevices(1), 5, repo.OrderLastHandshakeDesc, t),
+			wantTotal: 5,
 			wantErr:   false,
 		},
 	}
