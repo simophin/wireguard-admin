@@ -1,7 +1,6 @@
 package sqlite
 
 import (
-	"database/sql"
 	"fmt"
 	"github.com/jmoiron/sqlx"
 	"net"
@@ -152,15 +151,6 @@ func mustResolveIPNet(address string) net.IPNet {
 	return *ret
 }
 
-func createTimePointer(timestamp int64) *time.Time {
-	t := createTime(timestamp)
-	return &t
-}
-
-func createTime(timestamp int64) time.Time {
-	return time.Unix(timestamp, 0)
-}
-
 func Test_peer_FromPeerInfo(t *testing.T) {
 	type args struct {
 		info repo.PeerInfo
@@ -180,7 +170,7 @@ func Test_peer_FromPeerInfo(t *testing.T) {
 					PersistentKeepaliveInterval: 20,
 					AllowedIPs:                  []net.IPNet{mustResolveIPNet("1.2.3.4/24"), mustResolveIPNet("4.5.6.7/32")},
 					DevicePublicKey:             "pub_key",
-					LastHandshake:               createTimePointer(123),
+					LastHandshake:               123,
 					Name:                        "name1",
 				},
 			},
@@ -191,7 +181,7 @@ func Test_peer_FromPeerInfo(t *testing.T) {
 				PersistentKeepaliveInterval: 20,
 				AllowedIPs:                  "1.2.3.0/24,4.5.6.7/32",
 				DevicePublicKey:             "pub_key",
-				LastHandshake:               sql.NullTime{Time: createTime(123), Valid: true},
+				LastHandshake:               123,
 				Name:                        "name1",
 			},
 		},
@@ -205,7 +195,7 @@ func Test_peer_FromPeerInfo(t *testing.T) {
 					PersistentKeepaliveInterval: 0,
 					AllowedIPs:                  []net.IPNet{mustResolveIPNet("1.2.3.5/24"), mustResolveIPNet("4.5.6.8/32")},
 					DevicePublicKey:             "pub_key",
-					LastHandshake:               nil,
+					LastHandshake:               0,
 					Name:                        "name2",
 				},
 			},
@@ -216,7 +206,7 @@ func Test_peer_FromPeerInfo(t *testing.T) {
 				PersistentKeepaliveInterval: 0,
 				AllowedIPs:                  "1.2.3.0/24,4.5.6.8/32",
 				DevicePublicKey:             "pub_key",
-				LastHandshake:               sql.NullTime{},
+				LastHandshake:               0,
 				Name:                        "name2",
 			},
 		},
@@ -241,7 +231,7 @@ func Test_peer_ToPeerInfo(t *testing.T) {
 		PersistentKeepaliveInterval time.Duration
 		AllowedIPs                  string
 		DevicePublicKey             string
-		LastHandshake               sql.NullTime
+		LastHandshake               int64
 		Name                        string
 	}
 	tests := []struct {
@@ -259,7 +249,7 @@ func Test_peer_ToPeerInfo(t *testing.T) {
 				PersistentKeepaliveInterval: 20,
 				AllowedIPs:                  "1.2.3.0/24,4.5.6.7/32",
 				DevicePublicKey:             "device_pubkey",
-				LastHandshake:               sql.NullTime{},
+				LastHandshake:               0,
 				Name:                        "name",
 			},
 			wantInfo: repo.PeerInfo{
@@ -269,7 +259,7 @@ func Test_peer_ToPeerInfo(t *testing.T) {
 				PersistentKeepaliveInterval: 20,
 				AllowedIPs:                  []net.IPNet{mustResolveIPNet("1.2.3.4/24"), mustResolveIPNet("4.5.6.7/32")},
 				DevicePublicKey:             "device_pubkey",
-				LastHandshake:               nil,
+				LastHandshake:               0,
 				Name:                        "name",
 			},
 			wantErr: false,
@@ -283,7 +273,7 @@ func Test_peer_ToPeerInfo(t *testing.T) {
 				PersistentKeepaliveInterval: 20,
 				AllowedIPs:                  "1.2.3.0/24,4.5.6.7/32",
 				DevicePublicKey:             "device_pubkey",
-				LastHandshake:               sql.NullTime{},
+				LastHandshake:               0,
 				Name:                        "name",
 			},
 			wantErr: true,
@@ -297,7 +287,7 @@ func Test_peer_ToPeerInfo(t *testing.T) {
 				PersistentKeepaliveInterval: 20,
 				AllowedIPs:                  "not an address",
 				DevicePublicKey:             "device_pubkey",
-				LastHandshake:               sql.NullTime{},
+				LastHandshake:               0,
 				Name:                        "name",
 			},
 			wantErr: true,
@@ -417,7 +407,7 @@ func Test_sqliteRepository_ListDevices(t *testing.T) {
 	}
 }
 
-func genPeers(devices []repo.DeviceInfo, numPeers int, t *testing.T) []repo.PeerInfo {
+func genPeers(devices []repo.DeviceInfo, numPeers int, order repo.PeerOrder, t *testing.T) []repo.PeerInfo {
 	ret := make([]repo.PeerInfo, 0, numPeers)
 	j := 0
 	for i := 0; i < numPeers; i++ {
@@ -428,25 +418,27 @@ func genPeers(devices []repo.DeviceInfo, numPeers int, t *testing.T) []repo.Peer
 			Endpoint:                    &net.UDPAddr{},
 			PersistentKeepaliveInterval: time.Duration(i),
 			AllowedIPs:                  []net.IPNet{mustResolveIPNet(fmt.Sprintf("1.2.3.%v/24", i%254))},
-			DevicePublicKey:             devices[j].PublicKey,
+			DevicePublicKey:             devices[j%len(devices)].PublicKey,
 			Name:                        fmt.Sprint("name", i),
 		}
 		if i%3 == 0 {
-			p.LastHandshake = &now
+			p.LastHandshake = now.Unix()
 		}
 
 		ret = append(ret, p)
 		j++
 	}
 
+	sort.Slice(ret, order.LessFunc(ret))
 	return ret
 }
 
 func Test_sqliteRepository_ListPeers(t *testing.T) {
 	type args struct {
-		order  repo.PeerOrder
-		offset uint
-		limit  uint
+		allPeers []repo.PeerInfo
+		order    repo.PeerOrder
+		offset   uint
+		limit    uint
 	}
 	tests := []struct {
 		name      string
@@ -456,19 +448,37 @@ func Test_sqliteRepository_ListPeers(t *testing.T) {
 		wantErr   bool
 	}{
 		{
-			name:      "normal",
-			args:      args{},
-			wantData:  genPeers(),
-			wantTotal: 0,
+			name: "offset & limit",
+			args: args{
+				allPeers: genPeers(genNewDevices(1), 10, repo.OrderNameDesc, t),
+				order:    repo.OrderNameAsc,
+				offset:   5,
+				limit:    2,
+			},
+			wantData:  genPeers(genNewDevices(1), 10, repo.OrderNameAsc, t)[5:7],
+			wantTotal: 10,
+			wantErr:   false,
+		},
+		{
+			name: "offset & no limit",
+			args: args{
+				allPeers: genPeers(genNewDevices(1), 10, repo.OrderNameDesc, t),
+				order:    repo.OrderNameAsc,
+				offset:   5,
+			},
+			wantData:  genPeers(genNewDevices(1), 10, repo.OrderNameAsc, t)[5:7],
+			wantTotal: 10,
 			wantErr:   false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := sqliteRepository{
-				DefaultChangeNotificationHandler: tt.fields.DefaultChangeNotificationHandler,
-				db:                               tt.fields.db,
+			s := mustCreateRepository(t)
+
+			if err := s.UpdatePeers(tt.args.allPeers); err != nil {
+				t.Error("ListPeers() updateError:", err)
 			}
+
 			gotData, gotTotal, err := s.ListPeers(tt.args.order, tt.args.offset, tt.args.limit)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ListPeers() error = %v, wantErr %v", err, tt.wantErr)
@@ -480,6 +490,8 @@ func Test_sqliteRepository_ListPeers(t *testing.T) {
 			if gotTotal != tt.wantTotal {
 				t.Errorf("ListPeers() gotTotal = %v, want %v", gotTotal, tt.wantTotal)
 			}
+
+			_ = s.Close()
 		})
 	}
 }

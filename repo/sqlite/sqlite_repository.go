@@ -1,7 +1,6 @@
 package sqlite
 
 import (
-	"database/sql"
 	"fmt"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
@@ -39,7 +38,7 @@ type peer struct {
 	PersistentKeepaliveInterval time.Duration `db:"persistent_keepalive_interval"`
 	AllowedIPs                  string        `db:"allowed_ips"`
 	DevicePublicKey             string        `db:"device_public_key"`
-	LastHandshake               sql.NullTime  `db:"last_handshake"`
+	LastHandshake               int64         `db:"last_handshake"`
 	Name                        string        `db:"name"`
 }
 
@@ -51,7 +50,7 @@ const (
                        persistent_keepalive_interval INTEGER NOT NULL DEFAULT 0,
                        allowed_ips TEXT NOT NULL,
                        device_public_key TEXT NOT NULL REFERENCES devices(public_key) ON DELETE CASCADE ,
-                       last_handshake INTEGER,
+                       last_handshake INTEGER NOT NULL DEFAULT 0,
                        name TEXT
 	)`
 
@@ -71,20 +70,12 @@ func (p *peer) FromPeerInfo(info repo.PeerInfo) {
 	p.PersistentKeepaliveInterval = info.PersistentKeepaliveInterval
 	p.DevicePublicKey = info.DevicePublicKey
 	p.Name = info.Name
+	p.LastHandshake = info.LastHandshake
 
 	if info.Endpoint != nil {
 		p.Endpoint = info.Endpoint.String()
 	} else {
 		p.Endpoint = ""
-	}
-
-	if info.LastHandshake != nil {
-		p.LastHandshake = sql.NullTime{
-			Time:  *info.LastHandshake,
-			Valid: true,
-		}
-	} else {
-		p.LastHandshake = sql.NullTime{}
 	}
 
 	var ips []string
@@ -100,12 +91,8 @@ func (p peer) ToPeerInfo() (info repo.PeerInfo, err error) {
 		PresharedKey:                p.PreSharedKey,
 		PersistentKeepaliveInterval: p.PersistentKeepaliveInterval,
 		DevicePublicKey:             p.DevicePublicKey,
+		LastHandshake:               p.LastHandshake,
 		Name:                        p.Name,
-	}
-
-	if p.LastHandshake.Valid {
-		t := p.LastHandshake.Time
-		info.LastHandshake = &t
 	}
 
 	info.Endpoint, err = net.ResolveUDPAddr("udp", p.Endpoint)
@@ -330,25 +317,32 @@ func (s sqliteRepository) upsertPeers(removeAll bool, peers []repo.PeerInfo) err
 	}
 
 	defer func() {
-		if e, ok := recover().(error); ok {
-			err = e
+		if err != nil {
 			_ = tx.Rollback()
-		} else {
-			if err = tx.Commit(); err == nil {
-				s.NotifyChange()
-			}
+		} else if err = tx.Commit(); err == nil {
+			s.NotifyChange()
 		}
-
 	}()
 
 	if removeAll {
-		tx.MustExec("DELETE FROM peers WHERE 1")
+		if _, err = tx.Exec("DELETE FROM peers WHERE 1"); err != nil {
+			return err
+		}
 	}
+
+	st, err := tx.PrepareNamed(updatePeerSql)
+	if err != nil {
+		return err
+	}
+
+	defer st.Close()
 
 	var p peer
 	for _, peerInfo := range peers {
 		p.FromPeerInfo(peerInfo)
-		tx.MustExec(updatePeerSql, p)
+		if _, err = st.Exec(p); err != nil {
+			return err
+		}
 	}
 
 	return nil

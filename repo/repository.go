@@ -15,7 +15,7 @@ type PeerInfo struct {
 	PersistentKeepaliveInterval time.Duration
 	AllowedIPs                  []net.IPNet
 	DevicePublicKey             string
-	LastHandshake               *time.Time
+	LastHandshake               int64
 
 	Name string
 }
@@ -45,6 +45,48 @@ const (
 var (
 	InvalidPeerOrder = errors.New("invalid peer order")
 )
+
+func (o PeerOrder) LessFunc(peers []PeerInfo) func(lh, rh int) bool {
+	switch o {
+	case OrderNameAsc:
+		return func(i, j int) bool {
+			lh := peers[i]
+			rh := peers[j]
+			if lh.Name == rh.Name {
+				return lh.PublicKey < rh.PublicKey
+			}
+			return lh.Name < rh.Name
+		}
+	case OrderLastHandshakeAsc:
+		return func(i, j int) bool {
+			lh := peers[i]
+			rh := peers[j]
+			if lh.LastHandshake == rh.LastHandshake {
+				return lh.PublicKey < rh.PublicKey
+			}
+			return lh.LastHandshake < rh.LastHandshake
+		}
+
+	case OrderNameDesc:
+		{
+			f := OrderNameAsc.LessFunc(peers)
+			return func(lh, rh int) bool {
+				return !f(lh, rh)
+			}
+		}
+	case OrderLastHandshakeDesc:
+		{
+			f := OrderLastHandshakeAsc.LessFunc(peers)
+			return func(lh, rh int) bool {
+				return !f(lh, rh)
+			}
+		}
+	default:
+		{
+			panic(errors.New("repository: unable to create less func: unknown order type"))
+		}
+	}
+}
 
 type Repository interface {
 	ChangeNotification

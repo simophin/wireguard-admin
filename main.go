@@ -14,7 +14,7 @@ func syncRepositoryToWireguard(repository repo.Repository) error {
 	log.Println("Syncing repository to wireguard")
 	var result []repo.PeerInfo
 	var err error
-	if result, _, err = repository.ListAllPeers(0, 0); err != nil {
+	if result, _, err = repository.ListPeers(0, 0); err != nil {
 		return err
 	}
 
