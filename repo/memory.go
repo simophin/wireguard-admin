@@ -7,7 +7,7 @@ import (
 
 type memDevice struct {
 	Device DeviceInfo
-	Peers  map[string]*PeerInfo
+	Peers  map[PublicKey]*PeerInfo
 }
 
 type memRepository struct {
@@ -15,7 +15,7 @@ type memRepository struct {
 
 	Mutex sync.Mutex
 
-	Devices map[string]*memDevice
+	Devices map[PublicKey]*memDevice
 }
 
 func (m *memRepository) ListDevices() ([]DeviceInfo, error) {
@@ -34,10 +34,11 @@ func (m *memRepository) UpdateDevices(devices []DeviceInfo) error {
 	defer m.Mutex.Unlock()
 
 	for _, d := range devices {
-		if md, ok := m.Devices[d.PublicKey]; ok {
+		pubKey := d.PrivateKey.ToPublicKey()
+		if md, ok := m.Devices[pubKey]; ok {
 			md.Device = d
 		} else {
-			m.Devices[d.PublicKey] = &memDevice{Device: d, Peers: make(map[string]*PeerInfo)}
+			m.Devices[pubKey] = &memDevice{Device: d, Peers: make(map[PublicKey]*PeerInfo)}
 		}
 	}
 
@@ -48,7 +49,7 @@ func (m *memRepository) UpdateDevices(devices []DeviceInfo) error {
 	return nil
 }
 
-func (m *memRepository) RemoveDevices(pubKeys []string) error {
+func (m *memRepository) RemoveDevices(pubKeys []PublicKey) error {
 	m.Mutex.Lock()
 	defer m.Mutex.Unlock()
 
@@ -59,21 +60,24 @@ func (m *memRepository) RemoveDevices(pubKeys []string) error {
 	if len(pubKeys) > 0 {
 		m.NotifyChange()
 	}
+
+	return nil
 }
 
 func (m *memRepository) ReplaceAllDevices(devices []DeviceInfo) error {
 	m.Mutex.Lock()
 	defer m.Mutex.Unlock()
 
-	newDevices := make(map[string]*memDevice, len(devices))
+	newDevices := make(map[PublicKey]*memDevice, len(devices))
 	for _, d := range devices {
-		if old, ok := m.Devices[d.PublicKey]; ok {
+		key := d.PrivateKey.ToPublicKey()
+		if old, ok := m.Devices[key]; ok {
 			old.Device = d
-			newDevices[d.PublicKey] = old
+			newDevices[key] = old
 		} else {
-			newDevices[d.PublicKey] = &memDevice{
+			newDevices[key] = &memDevice{
 				Device: d,
-				Peers:  make(map[string]*PeerInfo),
+				Peers:  make(map[PublicKey]*PeerInfo),
 			}
 		}
 	}
@@ -112,8 +116,8 @@ func (m *memRepository) listPeersCommon(filter func(peer *PeerInfo) bool, order 
 	return
 }
 
-func (m *memRepository) ListPeersByDevices(pubKeys []string, order PeerOrder, offset uint, limit uint) (data []PeerInfo, total uint, err error) {
-	keyMap := make(map[string]interface{})
+func (m *memRepository) ListPeersByDevices(pubKeys []PublicKey, order PeerOrder, offset uint, limit uint) (data []PeerInfo, total uint, err error) {
+	keyMap := make(map[PublicKey]interface{})
 	for _, k := range pubKeys {
 		keyMap[k] = nil
 	}
@@ -124,14 +128,14 @@ func (m *memRepository) ListPeersByDevices(pubKeys []string, order PeerOrder, of
 	}, order, offset, limit)
 }
 
-func (m *memRepository) ListPeersByKeys(devicePubKey string, pubKeys []string, order PeerOrder, offset uint, limit uint) (data []PeerInfo, total uint, err error) {
-	keyMap := make(map[string]interface{})
+func (m *memRepository) ListPeersByKeys(devicePubKey PublicKey, pubKeys []PublicKey, order PeerOrder, offset uint, limit uint) (data []PeerInfo, total uint, err error) {
+	keyMap := make(map[PublicKey]interface{})
 	for _, k := range pubKeys {
 		keyMap[k] = nil
 	}
 
 	return m.listPeersCommon(func(peer *PeerInfo) bool {
-		if peer.DevicePublicKey != devicePubKey {
+		if !peer.DevicePublicKey.EqualTo(devicePubKey) {
 			return false
 		}
 
@@ -144,7 +148,7 @@ func (m *memRepository) ListPeers(order PeerOrder, offset uint, limit uint) (dat
 	return m.listPeersCommon(nil, order, offset, limit)
 }
 
-func (m *memRepository) RemovePeers(devicePubKey string, publicKeys []string) error {
+func (m *memRepository) RemovePeers(devicePubKey PublicKey, publicKeys []PublicKey) error {
 	m.Mutex.Lock()
 	defer m.Mutex.Unlock()
 
@@ -159,13 +163,13 @@ func (m *memRepository) RemovePeers(devicePubKey string, publicKeys []string) er
 	return nil
 }
 
-func (m *memRepository) UpdatePeers(devicePubKey string, peers []PeerInfo) error {
+func (m *memRepository) UpdatePeers(devicePubKey PublicKey, peers []PeerInfo) error {
 	m.Mutex.Lock()
 	defer m.Mutex.Unlock()
 
 	if d, ok := m.Devices[devicePubKey]; ok {
 		for _, p := range peers {
-			d.Peers[p.PublicKey] = p
+			d.Peers[p.PublicKey] = &p
 		}
 
 		m.NotifyChange()
@@ -174,12 +178,12 @@ func (m *memRepository) UpdatePeers(devicePubKey string, peers []PeerInfo) error
 	return nil
 }
 
-func (m *memRepository) ReplaceAllPeers(devicePubKey string, peers []PeerInfo) error {
+func (m *memRepository) ReplaceAllPeers(devicePubKey PublicKey, peers []PeerInfo) error {
 	m.Mutex.Lock()
 	defer m.Mutex.Unlock()
 
 	if d, ok := m.Devices[devicePubKey]; ok {
-		d.Peers = make(map[string]*PeerInfo)
+		d.Peers = make(map[PublicKey]*PeerInfo)
 		for _, p := range peers {
 			d.Peers[p.PublicKey] = &p
 		}
@@ -191,6 +195,6 @@ func (m *memRepository) ReplaceAllPeers(devicePubKey string, peers []PeerInfo) e
 
 func NewMemRepository() Repository {
 	return &memRepository{
-		Devices: make(map[string]*memDevice),
+		Devices: make(map[PublicKey]*memDevice),
 	}
 }

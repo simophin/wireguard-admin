@@ -10,19 +10,19 @@ import (
 )
 
 type PeerInfo struct {
-	PublicKey                   string
-	PreSharedKey                string
+	PublicKey                   PublicKey
+	PreSharedKey                SymmetricKey
 	Endpoint                    *net.UDPAddr
 	PersistentKeepaliveInterval time.Duration
 	AllowedIPs                  []net.IPNet
-	DevicePublicKey             string
+	DevicePublicKey             PublicKey
 	LastHandshake               int64
 
 	Name string
 }
 
 type DeviceInfo struct {
-	PrivateKey string
+	PrivateKey PrivateKey
 	ListenPort uint16
 	Name       string
 }
@@ -52,7 +52,7 @@ func (o PeerOrder) LessFunc(peers []PeerInfo) func(lh, rh int) bool {
 		return func(i, j int) bool {
 			lhs, rhs := peers[i], peers[j]
 			if lhs.Name == rhs.Name {
-				return lhs.PublicKey < rhs.PublicKey
+				return lhs.PublicKey.LessThan(rhs.PublicKey)
 			}
 			return lhs.Name < rhs.Name
 		}
@@ -60,7 +60,7 @@ func (o PeerOrder) LessFunc(peers []PeerInfo) func(lh, rh int) bool {
 		return func(i, j int) bool {
 			lhs, rhs := peers[i], peers[j]
 			if lhs.LastHandshake == rhs.LastHandshake {
-				return lhs.PublicKey < rhs.PublicKey
+				return lhs.PublicKey.LessThan(rhs.PublicKey)
 			}
 			return lhs.LastHandshake < rhs.LastHandshake
 		}
@@ -79,16 +79,16 @@ type Repository interface {
 
 	ListDevices() ([]DeviceInfo, error)
 	UpdateDevices(devices []DeviceInfo) error
-	RemoveDevices(pubKeys []string) error
+	RemoveDevices(pubKeys []PublicKey) error
 	ReplaceAllDevices(devices []DeviceInfo) error
 
-	ListPeersByDevices(pubKeys []string, order PeerOrder, offset uint, limit uint) (data []PeerInfo, total uint, err error)
-	ListPeersByKeys(devicePubKey string, pubKeys []string, order PeerOrder, offset uint, limit uint) (data []PeerInfo, total uint, err error)
+	ListPeersByDevices(pubKeys []PublicKey, order PeerOrder, offset uint, limit uint) (data []PeerInfo, total uint, err error)
+	ListPeersByKeys(devicePubKey PublicKey, pubKeys []PublicKey, order PeerOrder, offset uint, limit uint) (data []PeerInfo, total uint, err error)
 	ListPeers(order PeerOrder, offset uint, limit uint) (data []PeerInfo, total uint, err error)
 
-	RemovePeers(devicePubKey string, publicKeys []string) error
-	UpdatePeers(devicePubKey string, peers []PeerInfo) error
-	ReplaceAllPeers(devicePubKey string, peers []PeerInfo) error
+	RemovePeers(devicePubKey PublicKey, publicKeys []PublicKey) error
+	UpdatePeers(devicePubKey PublicKey, peers []PeerInfo) error
+	ReplaceAllPeers(devicePubKey PublicKey, peers []PeerInfo) error
 }
 
 type DefaultChangeNotificationHandler struct {
