@@ -11,7 +11,7 @@ import (
 
 type PeerInfo struct {
 	PublicKey                   string
-	PresharedKey                string
+	PreSharedKey                string
 	Endpoint                    *net.UDPAddr
 	PersistentKeepaliveInterval time.Duration
 	AllowedIPs                  []net.IPNet
@@ -23,7 +23,6 @@ type PeerInfo struct {
 
 type DeviceInfo struct {
 	PrivateKey string
-	PublicKey  string
 	ListenPort uint16
 	Name       string
 }
@@ -45,8 +44,6 @@ const (
 
 var (
 	InvalidPeerOrder = errors.New("invalid peer order")
-
-	OutOfRange = errors.New("out of range")
 )
 
 func (o PeerOrder) LessFunc(peers []PeerInfo) func(lh, rh int) bool {
@@ -86,12 +83,12 @@ type Repository interface {
 	ReplaceAllDevices(devices []DeviceInfo) error
 
 	ListPeersByDevices(pubKeys []string, order PeerOrder, offset uint, limit uint) (data []PeerInfo, total uint, err error)
-	ListPeersByKeys(pubKeys []string, order PeerOrder, offset uint, limit uint) (data []PeerInfo, total uint, err error)
+	ListPeersByKeys(devicePubKey string, pubKeys []string, order PeerOrder, offset uint, limit uint) (data []PeerInfo, total uint, err error)
 	ListPeers(order PeerOrder, offset uint, limit uint) (data []PeerInfo, total uint, err error)
 
-	RemovePeers(publicKeys []string) error
-	UpdatePeers(peers []PeerInfo) error
-	ReplaceAllPeers(peers []PeerInfo) error
+	RemovePeers(devicePubKey string, publicKeys []string) error
+	UpdatePeers(devicePubKey string, peers []PeerInfo) error
+	ReplaceAllPeers(devicePubKey string, peers []PeerInfo) error
 }
 
 type DefaultChangeNotificationHandler struct {

@@ -165,7 +165,7 @@ func Test_peer_FromPeerInfo(t *testing.T) {
 			args: args{
 				info: repo.PeerInfo{
 					PublicKey:                   "pubkey",
-					PresharedKey:                "preshared_key",
+					PreSharedKey:                "preshared_key",
 					Endpoint:                    mustResolveUdp("1.2.3.4:1234"),
 					PersistentKeepaliveInterval: 20,
 					AllowedIPs:                  []net.IPNet{mustResolveIPNet("1.2.3.4/24"), mustResolveIPNet("4.5.6.7/32")},
@@ -190,7 +190,7 @@ func Test_peer_FromPeerInfo(t *testing.T) {
 			args: args{
 				info: repo.PeerInfo{
 					PublicKey:                   "pubkey1",
-					PresharedKey:                "preshared_key1",
+					PreSharedKey:                "preshared_key1",
 					Endpoint:                    mustResolveUdp("1.2.3.5:1234"),
 					PersistentKeepaliveInterval: 0,
 					AllowedIPs:                  []net.IPNet{mustResolveIPNet("1.2.3.5/24"), mustResolveIPNet("4.5.6.8/32")},
@@ -254,7 +254,7 @@ func Test_peer_ToPeerInfo(t *testing.T) {
 			},
 			wantInfo: repo.PeerInfo{
 				PublicKey:                   "pubkey",
-				PresharedKey:                "presharedkey",
+				PreSharedKey:                "presharedkey",
 				Endpoint:                    mustResolveUdp("1.2.3.4:5000"),
 				PersistentKeepaliveInterval: 20,
 				AllowedIPs:                  []net.IPNet{mustResolveIPNet("1.2.3.4/24"), mustResolveIPNet("4.5.6.7/32")},
@@ -414,7 +414,7 @@ func genPeers(devices []repo.DeviceInfo, numPeers int, order repo.PeerOrder, t *
 		now := time.Now().Add(time.Duration(i) * time.Minute)
 		p := repo.PeerInfo{
 			PublicKey:                   fmt.Sprint("pubkey", i),
-			PresharedKey:                fmt.Sprint("sharekey", i),
+			PreSharedKey:                fmt.Sprint("sharekey", i),
 			Endpoint:                    &net.UDPAddr{},
 			PersistentKeepaliveInterval: time.Duration(i),
 			AllowedIPs:                  []net.IPNet{mustResolveIPNet(fmt.Sprintf("1.2.3.%v/24", i%254))},
