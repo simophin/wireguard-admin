@@ -64,7 +64,16 @@ func (w wgRepository) ListDevices() ([]repo.DeviceInfo, error) {
 }
 
 func (w wgRepository) UpdateDevices(devices []repo.DeviceInfo) error {
+	deviceMap, err := w.listDeviceMap()
+	if err != nil {
+		return err
+	}
 
+	var devicesToAdd []repo.DeviceInfo
+
+	for _, d := range devices {
+		deviceMap
+	}
 }
 
 func (w wgRepository) RemoveDevices(pubKeys []repo.PublicKey) error {
