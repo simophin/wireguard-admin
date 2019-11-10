@@ -3,6 +3,7 @@ package wg
 import (
 	"fmt"
 	"golang.zx2c4.com/wireguard/wgctrl"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"nz.cloudwalker/wireguard-webadmin/repo"
 	"os/exec"
 )
@@ -27,15 +28,15 @@ func runIpCommand(command string, args ...interface{}) error {
 	return cmd.Run()
 }
 
-func (w wgRepository) listDeviceMap() (map[repo.PublicKey]repo.DeviceInfo, error) {
+func (w wgRepository) listDeviceMap() (map[string]repo.DeviceInfo, error) {
 	devices, err := w.Client.Devices()
 	if err != nil {
 		return nil, err
 	}
 
-	ret := make(map[repo.PublicKey]repo.DeviceInfo, len(devices))
+	ret := make(map[string]repo.DeviceInfo, len(devices))
 	for _, d := range devices {
-		ret[repo.NewPublicKey(d.PublicKey)] = repo.DeviceInfo{
+		ret[d.Name] = repo.DeviceInfo{
 			PrivateKey: repo.NewPrivateKey(d.PrivateKey),
 			ListenPort: uint16(d.ListenPort),
 			Name:       d.Name,
@@ -72,7 +73,17 @@ func (w wgRepository) UpdateDevices(devices []repo.DeviceInfo) error {
 	var devicesToAdd []repo.DeviceInfo
 
 	for _, d := range devices {
-		deviceMap
+		if _, ok := deviceMap[d.PrivateKey.ToPublicKey()]; ok {
+			// Old device exists. Updating it.
+			config := wgtypes.Config{
+				PrivateKey:   ,
+				ListenPort:   nil,
+				FirewallMark: nil,
+				ReplacePeers: false,
+				Peers:        nil,
+			}
+			if err := w.Client.ConfigureDevice(d.Name, wgtypes.Config{})
+		}
 	}
 }
 

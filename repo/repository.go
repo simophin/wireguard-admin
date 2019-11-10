@@ -15,7 +15,7 @@ type PeerInfo struct {
 	Endpoint                    *net.UDPAddr
 	PersistentKeepaliveInterval time.Duration
 	AllowedIPs                  []net.IPNet
-	DevicePublicKey             PublicKey
+	DeviceName                  string
 	LastHandshake               int64
 
 	Name string
@@ -79,16 +79,16 @@ type Repository interface {
 
 	ListDevices() ([]DeviceInfo, error)
 	UpdateDevices(devices []DeviceInfo) error
-	RemoveDevices(pubKeys []PublicKey) error
+	RemoveDevices(names []string) error
 	ReplaceAllDevices(devices []DeviceInfo) error
 
-	ListPeersByDevices(pubKeys []PublicKey, order PeerOrder, offset uint, limit uint) (data []PeerInfo, total uint, err error)
-	ListPeersByKeys(devicePubKey PublicKey, pubKeys []PublicKey, order PeerOrder, offset uint, limit uint) (data []PeerInfo, total uint, err error)
+	ListPeersByDevices(deviceNames []string, order PeerOrder, offset uint, limit uint) (data []PeerInfo, total uint, err error)
+	ListPeersByKeys(deviceName string, pubKeys []PublicKey, order PeerOrder, offset uint, limit uint) (data []PeerInfo, total uint, err error)
 	ListPeers(order PeerOrder, offset uint, limit uint) (data []PeerInfo, total uint, err error)
 
-	RemovePeers(devicePubKey PublicKey, publicKeys []PublicKey) error
-	UpdatePeers(devicePubKey PublicKey, peers []PeerInfo) error
-	ReplaceAllPeers(devicePubKey PublicKey, peers []PeerInfo) error
+	RemovePeers(deviceName string, publicKeys []PublicKey) error
+	UpdatePeers(deviceName string, peers []PeerInfo) error
+	ReplaceAllPeers(deviceName string, peers []PeerInfo) error
 }
 
 type DefaultChangeNotificationHandler struct {

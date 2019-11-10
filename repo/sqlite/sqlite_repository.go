@@ -19,9 +19,9 @@ type device struct {
 
 const (
 	createDeviceTableSql = `CREATE TABLE devices (
-		private_key TEXT NOT NULL PRIMARY KEY,
+		private_key TEXT NOT NULL,
 		public_key TEXT NOT NULL,
-		name TEXT NOT NULL,
+		name TEXT NOT NULL PRIMARY KEY,
 		listen_port INTEGER NOT NULL CHECK (listen_port >= 0 AND listen_port < 65536)
 	)`
 
@@ -32,6 +32,7 @@ const (
 )
 
 type peer struct {
+	Name                        string            `db:"name"`
 	PublicKey                   repo.PublicKey    `db:"public_key"`
 	PreSharedKey                repo.SymmetricKey `db:"pre_shared_key"`
 	Endpoint                    string            `db:"endpoint"`
@@ -39,7 +40,6 @@ type peer struct {
 	AllowedIPs                  string            `db:"allowed_ips"`
 	DevicePublicKey             repo.PublicKey    `db:"device_public_key"`
 	LastHandshake               int64             `db:"last_handshake"`
-	Name                        string            `db:"name"`
 }
 
 const (
@@ -49,13 +49,13 @@ const (
                        endpoint TEXT NOT NULL,
                        persistent_keepalive_interval INTEGER NOT NULL DEFAULT 0,
                        allowed_ips TEXT NOT NULL,
-                       device_public_key TEXT NOT NULL REFERENCES devices(public_key) ON DELETE CASCADE,
+                       device_name TEXT NOT NULL REFERENCES devices(name) ON DELETE CASCADE,
                        last_handshake INTEGER NOT NULL DEFAULT 0,
                        name TEXT,
                        PRIMARY KEY (public_key, device_public_key) ON CONFLICT REPLACE
 	)`
 
-	createPeerIndexSql1 = `CREATE INDEX peers_device_public_key ON peers(device_public_key)`
+	createPeerIndexSql1 = `CREATE INDEX peers_device_name ON peers(device_name)`
 	createPeerIndexSql2 = `CREATE INDEX peers_public_key ON peers(public_key)`
 
 	updatePeerSql = `
@@ -202,8 +202,8 @@ func (s sqliteRepository) UpdateDevices(devices []repo.DeviceInfo) error {
 	return s.upsertDevices(false, devices)
 }
 
-func (s sqliteRepository) RemoveDevices(pubKeys []repo.PublicKey) error {
-	if _, err := s.db.Exec("DELETE FROM devices WHERE public_key IN (:1)", pubKeys); err != nil {
+func (s sqliteRepository) RemoveDevices(names []string) error {
+	if _, err := s.db.Exec("DELETE FROM devices WHERE name IN (:1)", names); err != nil {
 		return err
 	} else {
 		s.NotifyChange()
@@ -283,20 +283,20 @@ func (s sqliteRepository) listPeersCommon(offset uint, limit uint, order repo.Pe
 	return
 }
 
-func (s sqliteRepository) ListPeersByDevices(pubKeys []repo.PublicKey, order repo.PeerOrder, offset uint, limit uint) (data []repo.PeerInfo, total uint, err error) {
-	return s.listPeersCommon(offset, limit, order, "device_public_key IN (:1)", pubKeys)
+func (s sqliteRepository) ListPeersByDevices(deviceNames []string, order repo.PeerOrder, offset uint, limit uint) (data []repo.PeerInfo, total uint, err error) {
+	return s.listPeersCommon(offset, limit, order, "device_name IN (:1)", deviceNames)
 }
 
-func (s sqliteRepository) ListPeersByKeys(devicePubKey repo.PublicKey, pubKeys []repo.PublicKey, order repo.PeerOrder, offset uint, limit uint) (data []repo.PeerInfo, total uint, err error) {
-	return s.listPeersCommon(offset, limit, order, "device_public_key = :1 AND public_keys IN (:2)", devicePubKey, pubKeys)
+func (s sqliteRepository) ListPeersByKeys(deviceName string, pubKeys []repo.PublicKey, order repo.PeerOrder, offset uint, limit uint) (data []repo.PeerInfo, total uint, err error) {
+	return s.listPeersCommon(offset, limit, order, "device_name = :1 AND public_keys IN (:2)", deviceName, pubKeys)
 }
 
 func (s sqliteRepository) ListPeers(order repo.PeerOrder, offset uint, limit uint) (data []repo.PeerInfo, total uint, err error) {
 	return s.listPeersCommon(offset, limit, order, "1")
 }
 
-func (s sqliteRepository) RemovePeers(devicePubKey repo.PublicKey, publicKeys []repo.PublicKey) error {
-	if _, err := s.db.Exec("DELETE FROM peers WHERE public_key IN (:1)", publicKeys); err != nil {
+func (s sqliteRepository) RemovePeers(deviceName string, publicKeys []repo.PublicKey) error {
+	if _, err := s.db.Exec("DELETE FROM peers WHERE device_name = :1 public_key IN (:2)", deviceName, publicKeys); err != nil {
 		return err
 	} else {
 		s.NotifyChange()
@@ -304,8 +304,8 @@ func (s sqliteRepository) RemovePeers(devicePubKey repo.PublicKey, publicKeys []
 	}
 }
 
-func (s sqliteRepository) ReplaceAllPeers(devicePubKey repo.PublicKey, peers []repo.PeerInfo) error {
-	return s.upsertPeers(true, devicePubKey, peers)
+func (s sqliteRepository) ReplaceAllPeers(deviceName string, peers []repo.PeerInfo) error {
+	return s.upsertPeers(true, deviceName, peers)
 }
 
 func (s *sqliteRepository) Close() error {
@@ -315,7 +315,7 @@ func (s *sqliteRepository) Close() error {
 	return err
 }
 
-func (s sqliteRepository) upsertPeers(removeAll bool, devicePubKey repo.PublicKey, peers []repo.PeerInfo) error {
+func (s sqliteRepository) upsertPeers(removeAll bool, deviceName string, peers []repo.PeerInfo) error {
 	tx, err := s.db.Beginx()
 	if err != nil {
 		return err
@@ -330,7 +330,7 @@ func (s sqliteRepository) upsertPeers(removeAll bool, devicePubKey repo.PublicKe
 	}()
 
 	if removeAll {
-		if _, err = tx.Exec("DELETE FROM peers WHERE devicePubKey = :1", devicePubKey); err != nil {
+		if _, err = tx.Exec("DELETE FROM peers WHERE device_name = :1", deviceName); err != nil {
 			return err
 		}
 	}
@@ -353,8 +353,8 @@ func (s sqliteRepository) upsertPeers(removeAll bool, devicePubKey repo.PublicKe
 	return nil
 }
 
-func (s sqliteRepository) UpdatePeers(devicePubKey repo.PublicKey, peers []repo.PeerInfo) error {
-	return s.upsertPeers(false, devicePubKey, peers)
+func (s sqliteRepository) UpdatePeers(deviceName string, peers []repo.PeerInfo) error {
+	return s.upsertPeers(false, deviceName, peers)
 }
 
 func NewSqliteRepository(dsn string) (repo repo.Repository, err error) {

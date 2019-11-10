@@ -191,7 +191,7 @@ func Test_peer_FromPeerInfo(t *testing.T) {
 					Endpoint:                    mustResolveUdp("1.2.3.4:1234"),
 					PersistentKeepaliveInterval: 20,
 					AllowedIPs:                  []net.IPNet{mustResolveIPNet("1.2.3.4/24"), mustResolveIPNet("4.5.6.7/32")},
-					DevicePublicKey:             genPublicKey("pub_key"),
+					DeviceName:                  genPublicKey("pub_key"),
 					LastHandshake:               123,
 					Name:                        "name1",
 				},
@@ -613,11 +613,11 @@ func Test_sqliteRepository_ListPeersByKeys(t *testing.T) {
 		listeners                        map[chan<- interface{}]interface{}
 	}
 	type args struct {
-		deviceKey repo.PublicKey
-		pubKeys   []repo.PublicKey
-		order     repo.PeerOrder
-		offset    uint
-		limit     uint
+		deviceName string
+		pubKeys    []repo.PublicKey
+		order      repo.PeerOrder
+		offset     uint
+		limit      uint
 	}
 	tests := []struct {
 		name      string
@@ -635,7 +635,7 @@ func Test_sqliteRepository_ListPeersByKeys(t *testing.T) {
 				DefaultChangeNotificationHandler: tt.fields.DefaultChangeNotificationHandler,
 				db:                               tt.fields.db,
 			}
-			gotData, gotTotal, err := s.ListPeersByKeys(tt.args.deviceKey, tt.args.pubKeys, tt.args.order, tt.args.offset, tt.args.limit)
+			gotData, gotTotal, err := s.ListPeersByKeys(tt.args.deviceName, tt.args.pubKeys, tt.args.order, tt.args.offset, tt.args.limit)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ListPeersByKeys() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -657,7 +657,7 @@ func Test_sqliteRepository_RemoveDevices(t *testing.T) {
 		listeners                        map[chan<- interface{}]interface{}
 	}
 	type args struct {
-		pubKeys []repo.PublicKey
+		deviceNames []string
 	}
 	tests := []struct {
 		name    string
@@ -673,7 +673,7 @@ func Test_sqliteRepository_RemoveDevices(t *testing.T) {
 				DefaultChangeNotificationHandler: tt.fields.DefaultChangeNotificationHandler,
 				db:                               tt.fields.db,
 			}
-			if err := s.RemoveDevices(tt.args.pubKeys); (err != nil) != tt.wantErr {
+			if err := s.RemoveDevices(tt.args.deviceNames); (err != nil) != tt.wantErr {
 				t.Errorf("RemoveDevices() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
@@ -687,7 +687,7 @@ func Test_sqliteRepository_RemovePeers(t *testing.T) {
 		listeners                        map[chan<- interface{}]interface{}
 	}
 	type args struct {
-		deviceKey  repo.PublicKey
+		deviceName string
 		publicKeys []repo.PublicKey
 	}
 	tests := []struct {
@@ -704,7 +704,7 @@ func Test_sqliteRepository_RemovePeers(t *testing.T) {
 				DefaultChangeNotificationHandler: tt.fields.DefaultChangeNotificationHandler,
 				db:                               tt.fields.db,
 			}
-			if err := s.RemovePeers(tt.args.deviceKey, tt.args.publicKeys); (err != nil) != tt.wantErr {
+			if err := s.RemovePeers(tt.args.deviceName, tt.args.publicKeys); (err != nil) != tt.wantErr {
 				t.Errorf("RemovePeers() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
@@ -748,8 +748,8 @@ func Test_sqliteRepository_ReplaceAllPeers(t *testing.T) {
 		listeners                        map[chan<- interface{}]interface{}
 	}
 	type args struct {
-		peers     []repo.PeerInfo
-		deviceKey repo.PublicKey
+		peers      []repo.PeerInfo
+		deviceName string
 	}
 	tests := []struct {
 		name    string
@@ -765,7 +765,7 @@ func Test_sqliteRepository_ReplaceAllPeers(t *testing.T) {
 				DefaultChangeNotificationHandler: tt.fields.DefaultChangeNotificationHandler,
 				db:                               tt.fields.db,
 			}
-			if err := s.ReplaceAllPeers(tt.args.deviceKey, tt.args.peers); (err != nil) != tt.wantErr {
+			if err := s.ReplaceAllPeers(tt.args.deviceName, tt.args.peers); (err != nil) != tt.wantErr {
 				t.Errorf("ReplaceAllPeers() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
@@ -809,8 +809,8 @@ func Test_sqliteRepository_UpdatePeers(t *testing.T) {
 		listeners                        map[chan<- interface{}]interface{}
 	}
 	type args struct {
-		deviceKey repo.PublicKey
-		peers     []repo.PeerInfo
+		deviceName string
+		peers      []repo.PeerInfo
 	}
 	tests := []struct {
 		name    string
@@ -826,7 +826,7 @@ func Test_sqliteRepository_UpdatePeers(t *testing.T) {
 				DefaultChangeNotificationHandler: tt.fields.DefaultChangeNotificationHandler,
 				db:                               tt.fields.db,
 			}
-			if err := s.UpdatePeers(tt.args.deviceKey, tt.args.peers); (err != nil) != tt.wantErr {
+			if err := s.UpdatePeers(tt.args.deviceName, tt.args.peers); (err != nil) != tt.wantErr {
 				t.Errorf("UpdatePeers() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
@@ -916,7 +916,7 @@ func Test_sqliteRepository_upsertPeers(t *testing.T) {
 	}
 	type args struct {
 		removeAll bool
-		deviceKey repo.PublicKey
+		deviceKey string
 		peers     []repo.PeerInfo
 	}
 	tests := []struct {

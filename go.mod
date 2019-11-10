@@ -10,5 +10,8 @@ require (
 	github.com/vishvananda/netlink v1.0.0 // indirect
 	github.com/vishvananda/netns v0.0.0-20191106174202-0a2b9b5464df // indirect
 	golang.org/x/crypto v0.0.0-20191028145041-f83a4685e152
+	golang.zx2c4.com/wireguard v0.0.20191012
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20191028205011-23406de29c08
 )
+
+replace golang.zx2c4.com/wireguard => ./wireguard-go

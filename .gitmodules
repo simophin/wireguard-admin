@@ -1,0 +1,3 @@
+[submodule "wireguard-go"]
+	path = wireguard-go
+	url = git@github.com:simophin/wireguard-go.git
