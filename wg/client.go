@@ -35,6 +35,7 @@ type Device struct {
 }
 
 type Client interface {
+	Up(deviceId string, config DeviceConfig) (Device, error)
 	Down(deviceId string) error
 	Configure(deviceId string, configurator func(config *DeviceConfig) error) error
 	Devices() ([]Device, error)

@@ -1,11 +1,9 @@
 package main
 
 import (
-	"github.com/rs/cors"
 	"log"
-	"net/http"
-	"nz.cloudwalker/wireguard-webadmin/api"
-	"nz.cloudwalker/wireguard-webadmin/repo"
+	"net"
+	"nz.cloudwalker/wireguard-webadmin/wg"
 )
 
 //func syncRepositoryToWireguard(repository repo.Repository) error {
@@ -22,15 +20,15 @@ import (
 
 func main() {
 	//repository, err := sqlite.NewSqliteRepository("file:test.db?cache=shared&mode=memory")
-	repository := repo.NewMemRepository()
-
-	defer repository.Close()
-
-	closed := make(chan interface{}, 1)
-	finished := make(chan interface{}, 1)
-	changes := make(chan interface{}, 1)
-
-	repository.AddChangeNotification(changes)
+	//repository := repo.NewMemRepository()
+	//
+	//defer repository.Close()
+	//
+	//closed := make(chan interface{}, 1)
+	//finished := make(chan interface{}, 1)
+	//changes := make(chan interface{}, 1)
+	//
+	//repository.AddChangeNotification(changes)
 
 	//go func() {
 	//	defer func() {
@@ -77,15 +75,45 @@ func main() {
 	//	}
 	//}()
 
-	httpApi, err := api.NewHttpApi(repository)
+	//httpApi, err := api.NewHttpApi(repository)
+	//if err != nil {
+	//	panic(err)
+	//}
+	//
+	//if err := http.ListenAndServe("localhost:9090", cors.Default().Handler(httpApi)); err != nil {
+	//	log.Printf("error serving http: %v", err)
+	//}
+	//
+	//closed <- nil
+	//<-finished
+
+	client, err := wg.NewTunClient()
 	if err != nil {
 		panic(err)
 	}
 
-	if err := http.ListenAndServe("localhost:9090", cors.Default().Handler(httpApi)); err != nil {
-		log.Printf("error serving http: %v", err)
+	defer client.Close()
+
+	key, err := wg.NewRandom()
+	if err != nil {
+		panic(err)
 	}
 
-	closed <- nil
-	<-finished
+	_, address, err := net.ParseCIDR("192.168.30.1/24")
+	if err != nil {
+		panic(err)
+	}
+
+	device, err := client.Up("123", wg.DeviceConfig{
+		Name:       "first device",
+		PrivateKey: key,
+		ListenPort: 12356,
+		Address:    address,
+	})
+
+	if err != nil {
+		panic(err)
+	}
+
+	log.Println("Got new device:", device)
 }

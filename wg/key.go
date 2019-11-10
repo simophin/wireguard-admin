@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"golang.org/x/crypto/curve25519"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
 const keySize = 32
@@ -28,6 +29,14 @@ func (k Key) IsZero() bool {
 	}
 
 	return true
+}
+
+func NewRandom() (Key, error) {
+	if k, err := wgtypes.GenerateKey(); err != nil {
+		return Key{}, err
+	} else {
+		return Key(k), nil
+	}
 }
 
 func NewKeyFromString(v string) (Key, error) {
