@@ -10,50 +10,17 @@ import (
 )
 
 type tunDevice struct {
-	id         string
-	device     *device.Device
-	name       string
-	privateKey Key
-	listenPort uint16
-	peers      map[Key]*tunPeer
+	Device
 
-	tunIf tun.Device
-}
-
-type tunPeer struct {
-	PeerConfig
-	device *tunDevice
+	Raw   *device.Device
+	TunIf tun.Device
 }
 
 type tunClient struct {
-	mutex   sync.Mutex
-	devices map[string]*tunDevice
+	sync.RWMutex
 
-	tunNameSeq int
-}
-
-func (p tunPeer) toPeer(dev *device.Device) Peer {
-	return Peer{
-		PublicKey:           p.PublicKey,
-		Endpoint:            p.Endpoint,
-		AllowedIPs:          p.AllowedIPs,
-		PersistentKeepAlive: p.PersistentKeepAlive,
-		LastHandshake:       nil,
-	}
-}
-
-func (device tunDevice) toDevice() Device {
-	ret := Device{
-		Name:       device.name,
-		PrivateKey: device.privateKey,
-	}
-
-	ret.Peers = make([]Peer, 0, len(device.peers))
-	for _, p := range device.peers {
-		ret.Peers = append(ret.Peers, p.toPeer(device.device))
-	}
-
-	return ret
+	DeviceMap  map[string]*tunDevice
+	TunNameSeq uint
 }
 
 func (k Key) ToNoisePrivateKey() device.NoisePrivateKey {
@@ -66,6 +33,12 @@ func (k Key) ToNoisePublicKey() device.NoisePublicKey {
 
 func (k Key) ToNoiseSymmetricKey() device.NoiseSymmetricKey {
 	return device.NoiseSymmetricKey(k)
+}
+
+func (t *tunDevice) Close() error {
+	t.Raw.Down()
+	t.Raw.Close()
+	return t.TunIf.Close()
 }
 
 func configureDevice(tunIf tun.Device, dev *device.Device, config DeviceConfig) error {
@@ -129,124 +102,113 @@ func configureDevice(tunIf tun.Device, dev *device.Device, config DeviceConfig) 
 	return nil
 }
 
-func (t *tunClient) Up(deviceId string, config DeviceConfig) (Device, error) {
-	t.mutex.Lock()
-	defer t.mutex.Unlock()
+func (t *tunClient) Up(deviceId string, config DeviceConfig) (ret Device, err error) {
+	t.Lock()
+	defer t.Unlock()
 
-	var ret Device
-
-	if _, ok := t.devices[deviceId]; ok {
-		return ret, os.ErrExist
+	if _, ok := t.DeviceMap[deviceId]; ok {
+		err = os.ErrExist
+		return
 	}
 
-	tunIf, err := tun.CreateTUN(fmt.Sprint("utun", t.tunNameSeq), device.DefaultMTU)
+	tunIf, err := tun.CreateTUN(fmt.Sprint("utun", t.TunNameSeq), device.DefaultMTU)
 
 	if err != nil {
-		return ret, err
+		return
 	}
 
 	wgDevice := device.NewDevice(tunIf, device.NewLogger(device.LogLevelInfo, "wg-backend: "))
 
-	if err := configureDevice(tunIf, wgDevice, config); err != nil {
+	if err = configureDevice(tunIf, wgDevice, config); err != nil {
 		wgDevice.Close()
 		_ = tunIf.Close()
 		return ret, err
 	}
-	
+
 	wgDevice.Up()
 
-	t.tunNameSeq++
+	t.TunNameSeq++
 
-	dev := tunDevice{
-		id:         deviceId,
-		device:     wgDevice,
-		name:       config.Name,
-		privateKey: config.PrivateKey,
-		peers:      make(map[Key]*tunPeer, len(config.Peers)),
-		listenPort: config.ListenPort,
-		tunIf:      tunIf,
+	td := tunDevice{
+		Raw:   wgDevice,
+		TunIf: tunIf,
 	}
 
-	for _, pc := range config.Peers {
-		dev.peers[pc.PublicKey] = &tunPeer{
-			PeerConfig: PeerConfig{
-				PublicKey:           pc.PublicKey,
-				PreSharedKey:        pc.PreSharedKey,
-				Endpoint:            pc.Endpoint,
-				AllowedIPs:          pc.AllowedIPs,
-				PersistentKeepAlive: pc.PersistentKeepAlive,
-			},
-			device: &dev,
-		}
-	}
-
-	t.devices[deviceId] = &dev
-	return ret, nil
+	td.Device.UpdateFromConfig(config)
+	t.DeviceMap[deviceId] = &td
+	ret = td.Device
+	return
 }
 
 func (t tunClient) Down(deviceId string) error {
-	t.mutex.Lock()
-	defer t.mutex.Unlock()
+	t.Lock()
+	defer t.Unlock()
 
-	if d, ok := t.devices[deviceId]; !ok {
+	if d, ok := t.DeviceMap[deviceId]; !ok {
 		return os.ErrNotExist
 	} else {
-		d.device.Down()
-		d.device.Close()
-		err := d.tunIf.Close()
-		delete(t.devices, deviceId)
+		err := d.Close()
+		delete(t.DeviceMap, deviceId)
 		return err
 	}
 }
 
 func (t *tunClient) Configure(deviceId string, configurator func(config *DeviceConfig) error) error {
-	t.mutex.Lock()
-	defer t.mutex.Unlock()
+	t.Lock()
+	defer t.Unlock()
 
-	d, ok := t.devices[deviceId]
+	d, ok := t.DeviceMap[deviceId]
 	if !ok {
 		return os.ErrNotExist
 	}
 
-	config := DeviceConfig{
-		Name:       d.name,
-		PrivateKey: d.privateKey,
-		Peers:      make([]PeerConfig, 0, len(d.peers)),
-		ListenPort: d.peers,
-		Address:    nil,
-	}
+	config := d.ToConfig()
+
 	if err := configurator(&config); err != nil {
 		return err
 	}
+
+	if err := configureDevice(d.TunIf, d.Raw, config); err != nil {
+		return err
+	}
+
+	d.UpdateFromConfig(config)
+	return nil
 }
 
 func (t *tunClient) Devices() (devices []Device, err error) {
-	t.mutex.Lock()
-	defer t.mutex.Unlock()
+	t.RLock()
+	defer t.RUnlock()
 
-	for _, d := range t.devices {
-		devices = append(devices, d)
+	for _, d := range t.DeviceMap {
+		devices = append(devices, d.Device)
 	}
 
 	return
 }
 
-func (t tunClient) Device(id string) (Device, error) {
-	t.mutex.Lock()
-	defer t.mutex.Unlock()
+func (t *tunClient) Device(id string) (Device, error) {
+	t.RLock()
+	defer t.RUnlock()
 
-	if d, ok := t.devices[id]; ok {
-		copied := *d
-		return copied, nil
+	if d, ok := t.DeviceMap[id]; ok {
+		return d.Device, nil
+	} else {
+		return Device{}, nil
 	}
-
-	return nil, os.ErrNotExist
 }
 
-func (t tunClient) Close() error {
-	panic("implement me")
+func (t *tunClient) Close() error {
+	t.Lock()
+	defer t.Unlock()
+
+	for _, d := range t.DeviceMap {
+		_ = d.Close()
+	}
+
+	return nil
 }
 
 func NewTunClient() (Client, error) {
-	return &tunClient{devices: make(map[string]*tunDevice)}, nil
+	return &tunClient{DeviceMap: make(map[string]*tunDevice)}, nil
 }
