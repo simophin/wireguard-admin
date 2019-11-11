@@ -42,19 +42,12 @@ func (t *tunDevice) Close() error {
 }
 
 func configureDevice(tunIf tun.Device, dev *device.Device, config DeviceConfig) error {
+	var link netlink.Link
 	if name, err := tunIf.Name(); err != nil {
 		return err
 	} else {
-		link, err := netlink.LinkByName(name)
-		if err != nil {
+		if link, err = netlink.LinkByName(name); err != nil {
 			return err
-		}
-
-		var newAddr *netlink.Addr
-		if config.Address != nil {
-			if newAddr, err = netlink.ParseAddr(config.Address.String()); err != nil {
-				return err
-			}
 		}
 
 		addresses, err := netlink.AddrList(link, netlink.FAMILY_ALL)
@@ -66,11 +59,19 @@ func configureDevice(tunIf tun.Device, dev *device.Device, config DeviceConfig) 
 			_ = netlink.AddrDel(link, &addr)
 		}
 
-		if newAddr != nil {
-			if err = netlink.AddrAdd(link, newAddr); err != nil {
+		if config.Address != nil {
+			addr := &netlink.Addr{
+				IPNet: config.Address,
+			}
+
+			if err = netlink.AddrAdd(link, addr); err != nil {
 				return err
 			}
 		}
+	}
+
+	if err := netlink.LinkSetUp(link); err != nil {
+		return err
 	}
 
 	if err := dev.SetPrivateKey(config.PrivateKey.ToNoisePrivateKey()); err != nil {
@@ -95,6 +96,21 @@ func configureDevice(tunIf tun.Device, dev *device.Device, config DeviceConfig) 
 
 			if err != nil {
 				return err
+			}
+
+			for _, ip := range p.AllowedIPs {
+				if ones, _ := ip.Mask.Size(); ones > 0 {
+					err := netlink.RouteAdd(&netlink.Route{
+						LinkIndex: link.Attrs().Index,
+						Dst:       &ip,
+					})
+
+					if err != nil {
+						fmt.Printf("wg-tun: unable to add route for %v: %v\n", ip, err)
+					}
+				} else {
+					fmt.Printf("wg-tun: catch all ip %v is unsupported\n", ip)
+				}
 			}
 		}
 	}
@@ -130,6 +146,9 @@ func (t *tunClient) Up(deviceId string, config DeviceConfig) (ret Device, err er
 	t.TunNameSeq++
 
 	td := tunDevice{
+		Device: Device{
+			Id: deviceId,
+		},
 		Raw:   wgDevice,
 		TunIf: tunIf,
 	}

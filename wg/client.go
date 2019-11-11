@@ -27,6 +27,7 @@ type DeviceConfig struct {
 }
 
 type Device struct {
+	Id         string
 	Name       string
 	PrivateKey Key
 	Peers      []Peer

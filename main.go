@@ -2,8 +2,9 @@ package main
 
 import (
 	"log"
-	"net"
+	"nz.cloudwalker/wireguard-webadmin/utils"
 	"nz.cloudwalker/wireguard-webadmin/wg"
+	"time"
 )
 
 //func syncRepositoryToWireguard(repository repo.Repository) error {
@@ -99,7 +100,7 @@ func main() {
 		panic(err)
 	}
 
-	_, address, err := net.ParseCIDR("192.168.30.1/24")
+	cidr, err := utils.ParseCIDRAsIPNet("192.168.30.1/24")
 	if err != nil {
 		panic(err)
 	}
@@ -108,7 +109,23 @@ func main() {
 		Name:       "first device",
 		PrivateKey: key,
 		ListenPort: 12356,
-		Address:    address,
+		Address:    cidr,
+	})
+
+	if err != nil {
+		panic(err)
+	}
+
+	err = client.Configure(device.Id, func(config *wg.DeviceConfig) error {
+		config.Peers = []wg.PeerConfig{
+			{
+				PublicKey:           wg.Key{},
+				Endpoint:            nil,
+				AllowedIPs:          nil,
+				PersistentKeepAlive: 25 * time.Second,
+			},
+		}
+		return nil
 	})
 
 	if err != nil {
