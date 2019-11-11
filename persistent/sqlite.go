@@ -114,27 +114,23 @@ type sqlRepository struct {
 	*sqlx.DB
 }
 
-func (s sqlRepository) GetNames(t MetaType, ids []string) (ret []string, err error) {
-	var rows *sqlx.Rows
-
-	switch t {
-	case META_DEVICE: {
-		if rows, err = s.DB.Queryx("SELECT ")
-		break
-	}
-	}
-}
-
-func (s sqlRepository) SetNames(t MetaType, names map[string]string) error {
-	panic("implement me")
-}
-
-func (s sqlRepository) RemoveNames(t MetaType, ids []string) error {
-	panic("implement me")
-}
-
 func (s sqlRepository) SaveDevices(devices []wg.DeviceConfig) error {
-	panic("implement me")
+	tx, err := s.Beginx()
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		} else {
+			err = tx.Commit()
+		}
+	}()
+
+	for _, device := range devices {
+		tx.Exec("INSERT INTO devices()")
+	}
 }
 
 func (s sqlRepository) RemoveDevices(ids []string) error {
@@ -145,12 +141,36 @@ func (s sqlRepository) ListDevices() ([]wg.DeviceConfig, error) {
 	panic("implement me")
 }
 
-func NewSqliteRepository(dsn string) (DeviceRepository, MetaRepository, error) {
+func (s sqlRepository) GetDeviceMeta(ids []string, key MetaKey) (map[string]string, error) {
+	panic("implement me")
+}
+
+func (s sqlRepository) SaveDeviceMeta(id string, data map[MetaKey]string) error {
+	panic("implement me")
+}
+
+func (s sqlRepository) RemoveDeviceMeta(id string, keys []MetaKey) error {
+	panic("implement me")
+}
+
+func (s sqlRepository) GetPeerMeta(ids []PeerId, key MetaKey) (map[PeerId]string, error) {
+	panic("implement me")
+}
+
+func (s sqlRepository) SavePeerMeta(id PeerId, data map[MetaKey]string) error {
+	panic("implement me")
+}
+
+func (s sqlRepository) RemovePeerMeta(id PeerId, keys []MetaKey) {
+	panic("implement me")
+}
+
+func NewSqliteRepository(dsn string) (Repository, error) {
 	db, err := createDb(dsn, len(tableMigrations))
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	repo := &sqlRepository{DB: db}
-	return repo, repo, nil
+	return repo, nil
 }

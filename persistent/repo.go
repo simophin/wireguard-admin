@@ -2,42 +2,44 @@ package persistent
 
 import "nz.cloudwalker/wireguard-webadmin/wg"
 
-type DeviceRepository interface {
-	SaveDevices(devices []wg.DeviceConfig) error
-	RemoveDevices(ids []string) error
-	ListDevices() ([]wg.DeviceConfig, error)
-}
-
-type MetaId interface {
-	primaryId() string
-	secondaryId() string
-}
+type MetaKey string
 
 type DeviceId string
 
-func (d DeviceId) primaryId() string {
-	return string(d)
-}
-
-func (d DeviceId) secondaryId() string {
-	return ""
-}
-
 type PeerId struct {
-	DeviceId string
+	DeviceId DeviceId
 	Id       string
 }
 
-func (p PeerId) primaryId() string {
-	return p.DeviceId
+type Device struct {
+	wg.DeviceConfig
+	Id DeviceId
 }
 
-func (p PeerId) secondaryId() string {
-	return p.Id
+type Peer struct {
+	wg.PeerConfig
+	Id PeerId
 }
 
-type MetaRepository interface {
-	GetNames(ids []MetaId) ([]string, error)
-	SetNames(names map[MetaId]string) error
-	RemoveNames(ids []MetaId) error
+const (
+	MetaKeyName MetaKey = "name"
+)
+
+type Repository interface {
+	SaveDevices(devices []Device) error
+	RemoveDevices(ids []DeviceId) error
+	ListDevices() ([]Device, error)
+
+	SavePeers(peers []Peer) error
+	RemovePeers(ids []PeerId) error
+	ListPeersByDevice(deviceId DeviceId) ([]Peer, error)
+	ListPeers(ids []PeerId) ([]Peer, error)
+
+	GetDeviceMeta(ids []DeviceId, key MetaKey) (map[DeviceId]string, error)
+	SaveDeviceMeta(id DeviceId, data map[MetaKey]string) error
+	RemoveDeviceMeta(id DeviceId, keys []MetaKey) error
+
+	GetPeerMeta(ids []PeerId, key MetaKey) (map[PeerId]string, error)
+	SavePeerMeta(id PeerId, data map[MetaKey]string) error
+	RemovePeerMeta(id PeerId, keys []MetaKey)
 }
