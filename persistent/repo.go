@@ -1,6 +1,9 @@
 package persistent
 
-import "nz.cloudwalker/wireguard-webadmin/wg"
+import (
+	"net"
+	"nz.cloudwalker/wireguard-webadmin/wg"
+)
 
 type MetaKey string
 
@@ -12,13 +15,17 @@ type PeerId struct {
 }
 
 type Device struct {
-	wg.DeviceConfig
-	Id DeviceId
+	Id         DeviceId
+	Name       string
+	PrivateKey wg.Key
+	Peers      []Peer
+	ListenPort uint16
+	Address    *net.IPNet
 }
 
 type Peer struct {
 	wg.PeerConfig
-	Id PeerId
+	PeerId
 }
 
 const (
