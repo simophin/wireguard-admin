@@ -114,7 +114,7 @@ type sqlRepository struct {
 	*sqlx.DB
 }
 
-func (s sqlRepository) SaveDevices(devices []wg.DeviceConfig) error {
+func (s sqlRepository) SaveDevices(devices []Device) error {
 	tx, err := s.Beginx()
 	if err != nil {
 		return err
@@ -129,7 +129,16 @@ func (s sqlRepository) SaveDevices(devices []wg.DeviceConfig) error {
 	}()
 
 	for _, device := range devices {
-		tx.Exec("INSERT INTO devices()")
+		_, err = tx.Exec(`INSERT OR REPLACE INTO devices(id, private_key, listen_port, address)
+							VALUES (:1, :2, :3, :4)`, device.Id, device.PrivateKey, device.ListenPort, device.Address.String())
+		if err != nil {
+			return nil
+		}
+
+		for _, peer := range device.Peers {
+			tx.Exec(`INSERT OR REPLACE INTO peers(device_id, id, public_key, pre_shared_key, endpoint, allowed_ips, persistent_keep_alive)
+			VALUES (:1, :2, :3, :4, :5, :6)`, device.Id, peer.)
+		}
 	}
 }
 

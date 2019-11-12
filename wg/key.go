@@ -1,6 +1,7 @@
 package wg
 
 import (
+	"database/sql/driver"
 	"encoding/hex"
 	"fmt"
 	"golang.org/x/crypto/curve25519"
@@ -10,6 +11,23 @@ import (
 const keySize = 32
 
 type Key [keySize]byte
+
+func (k *Key) Scan(src interface{}) error {
+	if text, ok := src.(string); ok {
+		var err error
+		if *k, err = NewKeyFromString(text); err != nil {
+			return err
+		} else {
+			return nil
+		}
+	} else {
+		return fmt.Errorf("key: expecting a string but %v is given", src)
+	}
+}
+
+func (k Key) Value() (driver.Value, error) {
+	return k.String(), nil
+}
 
 func (k Key) String() string {
 	return hex.EncodeToString(k[:])
