@@ -1,13 +1,31 @@
 package persistent
 
 import (
-	"database/sql"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
+	"net"
+	"nz.cloudwalker/wireguard-webadmin/utils"
 	"nz.cloudwalker/wireguard-webadmin/wg"
-	"strconv"
 	"strings"
+	"time"
 )
+
+type device struct {
+	Id         string `sql:"id"`
+	Name       string `sql:"name"`
+	PrivateKey wg.Key `sql:"private_key"`
+	ListenPort uint16 `sql:"listen_port"`
+	Address    string `sql:"address"`
+}
+
+type peer struct {
+	DeviceId            string        `sql:"device_id"`
+	PublicKey           wg.Key        `sql:"public_key"`
+	PreSharedKey        wg.Key        `sql:"pre_shared_key"`
+	Endpoint            string        `sql:"endpoint"`
+	AllowedIPs          string        `sql:"allowed_ips"`
+	PersistentKeepAlive time.Duration `sql:"persistent_keep_alive"`
+}
 
 var tableMigrations = [][]string{
 	{
@@ -18,6 +36,7 @@ var tableMigrations = [][]string{
 
 		`CREATE TABLE devices(
 				id TEXT NOT NULL PRIMARY KEY,
+				name TEXT NOT NULL,
 				private_key TEXT NOT NULL,
 				listen_port INTEGER NOT NULL DEFAULT 0,
 				address TEXT NOT NULL
@@ -25,13 +44,12 @@ var tableMigrations = [][]string{
 
 		`CREATE TABLE peers(
 				device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-				id TEXT NOT NULL,
 				public_key TEXT NOT NULL,
 				pre_shared_key TEXT NOT NULL,
 				endpoint TEXT NOT NULL,
 				allowed_ips TEXT NOT NULL,
 				persistent_keep_alive INTEGER NOT NULL,
-				PRIMARY KEY (device_id, id) ON CONFLICT REPLACE
+				PRIMARY KEY (device_id, public_key) ON CONFLICT REPLACE
 			)`,
 
 		`CREATE INDEX peers_device_id ON peers(device_id)`,
@@ -45,20 +63,20 @@ var tableMigrations = [][]string{
 
 		`CREATE TABLE peer_meta(
 				device_id TEXT NOT NULL,
-				peer_id TEXT NOT NULL,
+				public_key TEXT NOT NULL,
 				name TEXT NOT NULL,
 				value TEXT NOT NULL,
-				PRIMARY KEY (device_id, peer_id, name),
-				FOREIGN KEY (device_id, peer_id)
-					REFERENCES peers (device_id, id)
+				PRIMARY KEY (device_id, public_key, name),
+				FOREIGN KEY (device_id, public_key)
+					REFERENCES peers (device_id, public_key)
 					ON DELETE CASCADE
 			)`,
 	},
 }
 
 const (
-	insertDeviceSql = `INSERT OR REPLACE INTO devices(id, private_key, listen_port, address)
-						VALUES (:id, :private_key, :listen_port, :address)`
+	insertDeviceSql = `INSERT OR REPLACE INTO devices(id, name, private_key, listen_port, address)
+						VALUES (:id, :private_key, :name, :listen_port, :address)`
 
 	insertPeerSql = `INSERT OR REPLACE INTO peers(device_id, id, public_key, pre_shared_key, endpoint, allowed_ips, persistent_keep_alive)
 					  VALUES (:device_id, :id, :public_key, :pre_shared_key, :endpoint, :allowed_ips, :persistent_keep_alive)`
@@ -68,49 +86,100 @@ const (
 	optionSchemaVersion = "schema_version"
 )
 
-func namedParametersDevice(device Device) map[string]string {
-	ret := map[string]string{
-		"id":          string(device.Id),
-		"private_key": device.PrivateKey.String(),
-		"listen_port": strconv.Itoa(int(device.ListenPort)),
+func (d *device) UpdateFrom(dev wg.Device) {
+	d.Id = dev.Id
+	if dev.Address != nil {
+		d.Address = dev.Address.String()
+	} else {
+		d.Address = ""
 	}
-
-	if device.Address != nil {
-		ret["address"] = device.Address.String()
-	}
-
-	return ret
+	d.PrivateKey = dev.PrivateKey
+	d.ListenPort = dev.ListenPort
+	d.Name = dev.Name
 }
 
-func namedParametersPeer(deviceId string, peer Peer) map[string]string {
-	var endpoint string
-	if peer.Endpoint != nil {
-		endpoint = peer.Endpoint.String()
-	}
+func (p *peer) UpdateFrom(d wg.Device, o wg.Peer) {
+	p.PublicKey = o.PublicKey
+	p.PersistentKeepAlive = o.PersistentKeepAlive
+	p.DeviceId = d.Id
 
-	ips := make([]string, 0, len(peer.AllowedIPs))
-	for _, ip := range peer.AllowedIPs {
+	ips := make([]string, 0, len(o.AllowedIPs))
+	for _, ip := range o.AllowedIPs {
 		ips = append(ips, ip.String())
 	}
-
-	return map[string]string{
-		"id":                    peer.Id,
-		"device_id":             deviceId,
-		"public_key":            peer.PublicKey.String(),
-		"pre_shared_key":        peer.PreSharedKey.String(),
-		"endpoint":              endpoint,
-		"allowed_ips":           strings.Join(ips, ","),
-		"persistent_keep_alive": peer.PersistentKeepAlive.String(),
+	p.AllowedIPs = strings.Join(ips, ",")
+	if o.Endpoint != nil {
+		p.Endpoint = o.Endpoint.String()
+	} else {
+		p.Endpoint = ""
 	}
 }
 
-func createDb(dsn string, targetSchemaVersion int) (*sql.DB, error) {
-	db, err := sql.Open("sqlite3", dsn)
+func (d device) ToDevice(peersMap map[string][]peer) (wg.Device, error) {
+	peers, _ := peersMap[d.Id]
+
+	ret := wg.Device{
+		Id:         d.Id,
+		Name:       d.Name,
+		PrivateKey: d.PrivateKey,
+		Peers:      make([]wg.Peer, 0, len(peers)),
+		ListenPort: d.ListenPort,
+		Address:    nil,
+	}
+
+	if len(d.Address) > 0 {
+		var err error
+		if ret.Address, err = utils.ParseCIDRAsIPNet(d.Address); err != nil {
+			return ret, err
+		}
+	}
+
+	for _, peer := range peers {
+		if peer, err := peer.ToPeer(d.Id); err != nil {
+			return ret, err
+		} else {
+			ret.Peers = append(ret.Peers, peer)
+		}
+	}
+
+	return ret, nil
+}
+
+func (p peer) ToPeer(deviceId string) (wg.Peer, error) {
+	allowedIPStrings := strings.Split(p.AllowedIPs, ",")
+	ret := wg.Peer{
+		PeerConfig: wg.PeerConfig{
+			PublicKey:           p.PublicKey,
+			PreSharedKey:        p.PreSharedKey,
+			Endpoint:            nil,
+			AllowedIPs:          make([]net.IPNet, 0, len(allowedIPStrings)),
+			PersistentKeepAlive: p.PersistentKeepAlive,
+		},
+	}
+
+	var err error
+	if ret.Endpoint, err = net.ResolveUDPAddr("udp", p.Endpoint); err != nil {
+		return ret, err
+	}
+
+	for _, ipString := range allowedIPStrings {
+		if _, ipNet, err := net.ParseCIDR(ipString); err != nil {
+			return ret, err
+		} else {
+			ret.AllowedIPs = append(ret.AllowedIPs, *ipNet)
+		}
+	}
+
+	return ret, nil
+}
+
+func createDb(dsn string, targetSchemaVersion int) (*sqlx.DB, error) {
+	db, err := sqlx.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, err
 	}
 
-	tx, err := db.Begin()
+	tx, err := db.Beginx()
 	if err != nil {
 		_ = db.Close()
 		return nil, err
@@ -155,55 +224,7 @@ type sqlRepository struct {
 	*sqlx.DB
 }
 
-func (s sqlRepository) RemoveDevices(ids []DeviceId) error {
-	panic("implement me")
-}
-
-func (s sqlRepository) ListDevices() ([]Device, error) {
-	panic("implement me")
-}
-
-func (s sqlRepository) SavePeers(peers []Peer) error {
-	panic("implement me")
-}
-
-func (s sqlRepository) RemovePeers(ids []PeerId) error {
-	panic("implement me")
-}
-
-func (s sqlRepository) ListPeersByDevice(deviceId DeviceId) ([]Peer, error) {
-	panic("implement me")
-}
-
-func (s sqlRepository) ListPeers(ids []PeerId) ([]Peer, error) {
-	panic("implement me")
-}
-
-func (s sqlRepository) GetDeviceMeta(ids []DeviceId, key MetaKey) (map[DeviceId]string, error) {
-	panic("implement me")
-}
-
-func (s sqlRepository) SaveDeviceMeta(id DeviceId, data map[MetaKey]string) error {
-	panic("implement me")
-}
-
-func (s sqlRepository) RemoveDeviceMeta(id DeviceId, keys []MetaKey) error {
-	panic("implement me")
-}
-
-func (s sqlRepository) GetPeerMeta(ids []PeerId, key MetaKey) (map[PeerId]string, error) {
-	panic("implement me")
-}
-
-func (s sqlRepository) SavePeerMeta(id PeerId, data map[MetaKey]string) error {
-	panic("implement me")
-}
-
-func (s sqlRepository) RemovePeerMeta(id PeerId, keys []MetaKey) {
-	panic("implement me")
-}
-
-func (s sqlRepository) SaveDevices(devices []Device) error {
+func (s sqlRepository) SaveDevices(devices []wg.Device) error {
 	tx, err := s.Beginx()
 	if err != nil {
 		return err
@@ -217,32 +238,111 @@ func (s sqlRepository) SaveDevices(devices []Device) error {
 		}
 	}()
 
-	insertDeviceSt, err := tx.PrepareNamed(insertDeviceSql)
+	devSt, err := s.PrepareNamed(insertDeviceSql)
 	if err != nil {
 		return err
 	}
-	defer insertDeviceSt.Close()
 
-	insertPeerSt, err := tx.PrepareNamed(insertPeerSql)
+	peerSt, err := s.PrepareNamed(insertPeerSql)
 	if err != nil {
 		return err
 	}
-	defer insertPeerSt.Close()
 
-	for _, device := range devices {
+	var updatingDevice device
+	var updatingPeer peer
 
-		if _, err = insertDeviceSt.Exec(namedParametersDevice(device)); err != nil {
+	for _, d := range devices {
+		updatingDevice.UpdateFrom(d)
+		if _, err = devSt.Exec(updatingDevice); err != nil {
 			return err
 		}
 
-		for _, peer := range device.Peers {
-			if _, err = insertDeviceSt.Exec(namedParametersPeer(device.Id, peer)); err != nil {
+		for _, p := range d.Peers {
+			updatingPeer.UpdateFrom(d, p)
+			if _, err = peerSt.Exec(p); err != nil {
 				return err
 			}
 		}
 	}
 
 	return nil
+}
+
+func (s sqlRepository) queryPeersMap() (map[string][]peer, error) {
+	rows, err := s.Queryx("SELECT * FROM peers")
+	if err != nil {
+		return nil, err
+	}
+
+	ret := make(map[string][]peer)
+	var p peer
+	for rows.Next() {
+		if err = rows.StructScan(&p); err != nil {
+			return ret, err
+		}
+
+		devicePeers, _ := ret[p.DeviceId]
+		devicePeers = append(devicePeers, p)
+		ret[p.DeviceId] = devicePeers
+	}
+
+	return ret, nil
+}
+
+func (s sqlRepository) ListDevices() (ret []wg.Device, err error) {
+	rows, err := s.Queryx("SELECT * FROM devices")
+	if err != nil {
+		return
+	}
+
+	peersMap, err := s.queryPeersMap()
+	if err != nil {
+		return
+	}
+
+	var dev device
+	for rows.Next() {
+		if err = rows.StructScan(&dev); err != nil {
+			return
+		}
+
+		if dev, err := dev.ToDevice(peersMap); err != nil {
+			return
+		} else {
+			ret = append(ret, dev)
+		}
+	}
+
+	return
+}
+
+func (s sqlRepository) SetDeviceMeta(deviceId DeviceId, key MetaKey, value string) error {
+	panic("implement me")
+}
+
+func (s sqlRepository) GetDeviceMeta(key MetaKey) (map[DeviceId]string, error) {
+	panic("implement me")
+}
+
+func (s sqlRepository) RemoveDeviceMeta(deviceId DeviceId, key MetaKey) error {
+	panic("implement me")
+}
+
+func (s sqlRepository) SetPeerMeta(peerId PeerId, key MetaKey, value string) error {
+	panic("implement me")
+}
+
+func (s sqlRepository) GetPeerMeta(key MetaKey) (map[PeerId]string, error) {
+	panic("implement me")
+}
+
+func (s sqlRepository) RemovePeerMeta(id PeerId, key MetaKey) error {
+	panic("implement me")
+}
+
+func (s sqlRepository) RemoveDevices(ids []DeviceId) error {
+	_, err := s.Exec("DELETE FROM devices WHERE id IN ($1)", ids)
+	return err
 }
 
 func NewSqliteRepository(dsn string) (Repository, error) {
