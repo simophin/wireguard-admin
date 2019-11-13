@@ -78,8 +78,8 @@ const (
 	insertDeviceSql = `INSERT OR REPLACE INTO devices(id, name, private_key, listen_port, address)
 						VALUES (:id, :private_key, :name, :listen_port, :address)`
 
-	insertPeerSql = `INSERT OR REPLACE INTO peers(device_id, id, public_key, pre_shared_key, endpoint, allowed_ips, persistent_keep_alive)
-					  VALUES (:device_id, :id, :public_key, :pre_shared_key, :endpoint, :allowed_ips, :persistent_keep_alive)`
+	insertPeerSql = `INSERT OR REPLACE INTO peers(device_id, public_key, pre_shared_key, endpoint, allowed_ips, persistent_keep_alive)
+					  VALUES (:device_id, :public_key, :pre_shared_key, :endpoint, :allowed_ips, :persistent_keep_alive)`
 )
 
 const (
@@ -135,7 +135,7 @@ func (d device) ToDevice(peersMap map[string][]peer) (wg.Device, error) {
 	}
 
 	for _, peer := range peers {
-		if peer, err := peer.ToPeer(d.Id); err != nil {
+		if peer, err := peer.ToPeer(); err != nil {
 			return ret, err
 		} else {
 			ret.Peers = append(ret.Peers, peer)
@@ -145,7 +145,7 @@ func (d device) ToDevice(peersMap map[string][]peer) (wg.Device, error) {
 	return ret, nil
 }
 
-func (p peer) ToPeer(deviceId string) (wg.Peer, error) {
+func (p peer) ToPeer() (wg.Peer, error) {
 	allowedIPStrings := strings.Split(p.AllowedIPs, ",")
 	ret := wg.Peer{
 		PeerConfig: wg.PeerConfig{
@@ -317,27 +317,69 @@ func (s sqlRepository) ListDevices() (ret []wg.Device, err error) {
 }
 
 func (s sqlRepository) SetDeviceMeta(deviceId DeviceId, key MetaKey, value string) error {
-	panic("implement me")
+	_, err := s.Exec("INSERT OR REPLACE INTO device_meta (device_id, name, value) VALUES ($1, $2, $3)",
+		deviceId, key, value)
+	return err
 }
 
 func (s sqlRepository) GetDeviceMeta(key MetaKey) (map[DeviceId]string, error) {
-	panic("implement me")
+	rows, err := s.Query("SELECT device_id, name, value FROM device_meta WHERE name = $1", key)
+	if err != nil {
+		return nil, err
+	}
+
+	var deviceId, name, value string
+	ret := make(map[DeviceId]string)
+	for rows.Next() {
+		if err = rows.Scan(&deviceId, &name, &value); err != nil {
+			return ret, err
+		}
+
+		ret[DeviceId(deviceId)] = value
+	}
+
+	return ret, nil
 }
 
 func (s sqlRepository) RemoveDeviceMeta(deviceId DeviceId, key MetaKey) error {
-	panic("implement me")
+	_, err := s.Exec("DELETE FROM device_meta WHERE device_id = $1 AND name = $2", deviceId, key)
+	return err
 }
 
 func (s sqlRepository) SetPeerMeta(peerId PeerId, key MetaKey, value string) error {
-	panic("implement me")
+	_, err := s.Exec("INSERT OR REPLACE INTO peer_meta (device_id, public_key, name, value) VALUES ($1, $2, $3, $4)",
+		peerId.DeviceId, peerId.PublicKey, key, value)
+
+	return err
 }
 
 func (s sqlRepository) GetPeerMeta(key MetaKey) (map[PeerId]string, error) {
-	panic("implement me")
+	rows, err := s.Query("SELECT device_id, public_key, value FROM peer_meta WHERE name = $1", key)
+	if err != nil {
+		return nil, err
+	}
+
+	var deviceId, value string
+	var publicKey wg.Key
+	ret := make(map[PeerId]string)
+	for rows.Next() {
+		if err = rows.Scan(&deviceId, &publicKey, &value); err != nil {
+			return ret, err
+		}
+
+		ret[PeerId{
+			DeviceId:  DeviceId(deviceId),
+			PublicKey: publicKey,
+		}] = value
+	}
+
+	return ret, nil
 }
 
 func (s sqlRepository) RemovePeerMeta(id PeerId, key MetaKey) error {
-	panic("implement me")
+	_, err := s.Exec("DELETE FROM peer_meta WHERE device_id = $1 AND public_key = $2 AND name = $3",
+		id.DeviceId, id.PublicKey, key)
+	return err
 }
 
 func (s sqlRepository) RemoveDevices(ids []DeviceId) error {
