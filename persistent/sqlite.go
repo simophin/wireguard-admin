@@ -223,7 +223,7 @@ type sqlRepository struct {
 }
 
 func (s sqlRepository) Close() error {
-	return s.Close()
+	return s.DB.Close()
 }
 
 func (s sqlRepository) SaveDevices(devices []wg.Device) error {

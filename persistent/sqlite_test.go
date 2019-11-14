@@ -1,7 +1,10 @@
 package persistent
 
 import (
+	"crypto/sha256"
 	"github.com/jmoiron/sqlx"
+	"net"
+	"nz.cloudwalker/wireguard-webadmin/utils"
 	"nz.cloudwalker/wireguard-webadmin/wg"
 	"reflect"
 	"testing"
@@ -37,6 +40,35 @@ func TestNewSqliteRepository(t *testing.T) {
 	}
 }
 
+func newKeyFromString(v string) wg.Key {
+	return wg.Key(sha256.Sum256([]byte(v)))
+}
+
+func parseAddress(v string, t *testing.T) *net.UDPAddr {
+	addr, err := net.ResolveUDPAddr("udp", v)
+	if err != nil {
+		t.Errorf("error parsing address '%v': %v", v, err)
+	}
+	return addr
+}
+
+func parseIPNet(v string, t *testing.T) *net.IPNet {
+	addr, err := utils.ParseCIDRAsIPNet(v)
+	if err != nil {
+		t.Errorf("parseIPNet: %v", err)
+	}
+	return addr
+}
+
+func parseCIDR(addr string, t *testing.T) *net.IPNet {
+	_, cidr, err := net.ParseCIDR(addr)
+	if err != nil {
+		t.Errorf("parseCIDR: %v", err)
+	}
+
+	return cidr
+}
+
 func Test_device_ToDevice(t *testing.T) {
 	type fields struct {
 		Id         string
@@ -55,7 +87,52 @@ func Test_device_ToDevice(t *testing.T) {
 		want    wg.Device
 		wantErr bool
 	}{
-		// TODO: Add test cases.
+		{
+			name: "success",
+			fields: fields{
+				Id:         "device1",
+				Name:       "name1",
+				PrivateKey: newKeyFromString("key1"),
+				ListenPort: 123,
+				Address:    "1.2.3.4/24",
+			},
+			args: args{
+				peersMap: map[string][]peer{
+					"device1": {
+						{
+							DeviceId:            "device1",
+							PublicKey:           newKeyFromString("key2"),
+							PreSharedKey:        wg.Key{},
+							Endpoint:            "2.3.4.5:90",
+							AllowedIPs:          "1.2.3.4/24",
+							PersistentKeepAlive: 10,
+						},
+					},
+				},
+			},
+			want: wg.Device{
+				Id:         "device1",
+				Name:       "name1",
+				PrivateKey: newKeyFromString("key1"),
+				Peers: []wg.Peer{
+					{
+						PeerConfig: wg.PeerConfig{
+							PublicKey:    newKeyFromString("key2"),
+							PreSharedKey: wg.Key{},
+							Endpoint:     parseAddress("2.3.4.5:90", t),
+							AllowedIPs: []net.IPNet{
+								*parseIPNet("1.2.3.0/24", t),
+							},
+							PersistentKeepAlive: 10,
+						},
+						LastHandshake: nil,
+					},
+				},
+				ListenPort: 123,
+				Address:    parseIPNet("1.2.3.4/24", t),
+			},
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -98,13 +175,13 @@ func Test_device_UpdateFrom(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			d := &device{
-				Id:         tt.fields.Id,
-				Name:       tt.fields.Name,
-				PrivateKey: tt.fields.PrivateKey,
-				ListenPort: tt.fields.ListenPort,
-				Address:    tt.fields.Address,
-			}
+			//d := &device{
+			//	Id:         tt.fields.Id,
+			//	Name:       tt.fields.Name,
+			//	PrivateKey: tt.fields.PrivateKey,
+			//	ListenPort: tt.fields.ListenPort,
+			//	Address:    tt.fields.Address,
+			//}
 		})
 	}
 }
@@ -170,14 +247,14 @@ func Test_peer_UpdateFrom(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := &peer{
-				DeviceId:            tt.fields.DeviceId,
-				PublicKey:           tt.fields.PublicKey,
-				PreSharedKey:        tt.fields.PreSharedKey,
-				Endpoint:            tt.fields.Endpoint,
-				AllowedIPs:          tt.fields.AllowedIPs,
-				PersistentKeepAlive: tt.fields.PersistentKeepAlive,
-			}
+			//p := &peer{
+			//	DeviceId:            tt.fields.DeviceId,
+			//	PublicKey:           tt.fields.PublicKey,
+			//	PreSharedKey:        tt.fields.PreSharedKey,
+			//	Endpoint:            tt.fields.Endpoint,
+			//	AllowedIPs:          tt.fields.AllowedIPs,
+			//	PersistentKeepAlive: tt.fields.PersistentKeepAlive,
+			//}
 		})
 	}
 }
