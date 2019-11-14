@@ -200,9 +200,7 @@ func createDb(dsn string, targetSchemaVersion int) (*sqlx.DB, error) {
 	schemaVersion := 0
 
 	row := tx.QueryRow("SELECT CAST(value AS INTEGER) FROM options WHERE name = $1", optionSchemaVersion)
-	if err = row.Scan(&schemaVersion); err != nil {
-		return nil, err
-	}
+	_ = row.Scan(&schemaVersion)
 
 	for v := schemaVersion; v < targetSchemaVersion; v++ {
 		for _, s := range tableMigrations[v] {
@@ -222,6 +220,10 @@ func createDb(dsn string, targetSchemaVersion int) (*sqlx.DB, error) {
 
 type sqlRepository struct {
 	*sqlx.DB
+}
+
+func (s sqlRepository) Close() error {
+	return s.Close()
 }
 
 func (s sqlRepository) SaveDevices(devices []wg.Device) error {
@@ -306,7 +308,8 @@ func (s sqlRepository) ListDevices() (ret []wg.Device, err error) {
 			return
 		}
 
-		if dev, err := dev.ToDevice(peersMap); err != nil {
+		if dev, e := dev.ToDevice(peersMap); e != nil {
+			err = e
 			return
 		} else {
 			ret = append(ret, dev)

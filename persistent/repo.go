@@ -1,6 +1,9 @@
 package persistent
 
-import "nz.cloudwalker/wireguard-webadmin/wg"
+import (
+	"io"
+	"nz.cloudwalker/wireguard-webadmin/wg"
+)
 
 type MetaKey string
 
@@ -15,6 +18,7 @@ type PeerId struct {
 }
 
 type Repository interface {
+	io.Closer
 	SaveDevices(devices []wg.Device) error
 	ListDevices() ([]wg.Device, error)
 	RemoveDevices(ids []DeviceId) error
